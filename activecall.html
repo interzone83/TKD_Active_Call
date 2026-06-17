@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+
+  <!--
+    activecall.html
+    ---------------
+    Full-screen fake active call prop page.
+    Pulls all visible data from a Google Sheet through Apps Script API.
+  -->
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  >
+
+  <title>Active Call</title>
+
+  <style>
+    /* ---------- Reset ---------- */
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* ---------- Main call screen ---------- */
+    .call-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        var(--wallpaper, none),
+        linear-gradient(
+          180deg,
+          var(--header-colour, #101010) 0%,
+          var(--middle-colour, #151515) 42%,
+          var(--footer-colour, #101010) 100%
+        );
+      background-size: cover;
+      background-position: center;
+      color: var(--text-colour, #ffffff);
+      opacity: 0;
+    }
+
+    .call-screen.ready {
+      opacity: 1;
+    }
+
+    /* ---------- Top status bar ---------- */
+    .status-bar {
+      padding: calc(8px + env(safe-area-inset-top)) 18px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .status-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .signal-bars {
+      display: flex;
+      align-items: end;
+      gap: 2px;
+      height: 13px;
+    }
+
+    .signal-bars span {
+      width: 3px;
+      background: currentColor;
+      border-radius: 2px;
+      opacity: 0.28;
+    }
+
+    .signal-bars span:nth-child(1) { height: 4px; }
+    .signal-bars span:nth-child(2) { height: 7px; }
+    .signal-bars span:nth-child(3) { height: 10px; }
+    .signal-bars span:nth-child(4) { height: 13px; }
+
+    .signal-bars.bars-1 span:nth-child(-n+1),
+    .signal-bars.bars-2 span:nth-child(-n+2),
+    .signal-bars.bars-3 span:nth-child(-n+3),
+    .signal-bars.bars-4 span:nth-child(-n+4) {
+      opacity: 1;
+    }
+
+    .battery {
+      width: 28px;
+      height: 13px;
+      border: 1.8px solid currentColor;
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 3px;
+      width: 3px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .battery-fill {
+      height: 100%;
+      width: 43%;
+      background: currentColor;
+    }
+
+    /* ---------- Main call content ---------- */
+    .call-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      text-align: center;
+    }
+
+    .avatar {
+      width: 138px;
+      height: 138px;
+      border-radius: 50%;
+      background: var(--avatar-colour, #333333);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      font-weight: 500;
+      margin-bottom: 28px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+
+    .caller-name {
+      font-size: 34px;
+      font-weight: 600;
+      margin-bottom: 9px;
+    }
+
+    .call-status {
+      font-size: 18px;
+      color: var(--muted-text-colour, #b8b8b8);
+    }
+
+    /* ---------- Bottom controls ---------- */
+    .call-footer {
+      padding: 20px 24px calc(34px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.08);
+    }
+
+    .control-row {
+      display: flex;
+      justify-content: space-around;
+      align-items: center;
+      margin-bottom: 24px;
+    }
+
+    .control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-colour, #ffffff);
+      font-size: 12px;
+    }
+
+    .control-circle {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: var(--button-colour, #2b2b2b);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 23px;
+    }
+
+    .hangup {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      background: var(--hangup-colour, #ff3b30);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      margin: 0 auto;
+      transform: rotate(135deg);
+    }
+
+    /* ---------- Inactive fallback ---------- */
+    .inactive {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .inactive.visible {
+      display: flex;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="call-screen" id="callScreen">
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div id="displayTime">10:47</div>
+
+      <div class="status-right">
+        <div class="signal-bars bars-4" id="signalBars">
+          <span></span><span></span><span></span><span></span>
+        </div>
+        <span id="signalText">5G</span>
+        <span id="batteryPercent">43%</span>
+        <div class="battery">
+          <div class="battery-fill" id="batteryFill"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main caller area -->
+    <main class="call-main">
+      <div class="avatar" id="avatar">J</div>
+      <div class="caller-name" id="callerName">Jess</div>
+      <div class="call-status" id="callStatus">00:47</div>
+    </main>
+
+    <!-- Fake call controls -->
+    <footer class="call-footer">
+      <div class="control-row">
+        <div class="control">
+          <div class="control-circle">◦</div>
+          <div>Mute</div>
+        </div>
+
+        <div class="control">
+          <div class="control-circle">⌕</div>
+          <div>Keypad</div>
+        </div>
+
+        <div class="control">
+          <div class="control-circle">◉</div>
+          <div>Speaker</div>
+        </div>
+      </div>
+
+      <div class="hangup">☎</div>
+    </footer>
+  </div>
+
+  <div class="inactive" id="inactiveScreen">Call screen inactive</div>
+
+  <script src="config.js"></script>
+
+  <script>
+    /* ---------- API helper ---------- */
+    function apiUrl(action) {
+      const url = new URL(API_URL);
+      url.searchParams.set("action", action);
+      return url.toString();
+    }
+
+    async function loadSettings() {
+      try {
+        const response = await fetch(apiUrl("getActiveCallSettings"), {
+          method: "GET",
+          redirect: "follow"
+        });
+
+        const settings = await response.json();
+        applySettings(settings);
+      } catch (error) {
+        console.log("Active call load error:", error);
+      }
+    }
+
+    function applySettings(settings) {
+      const active = settings["Active"] === true || String(settings["Active"]).toUpperCase() === "TRUE";
+
+      const callScreen = document.getElementById("callScreen");
+      const inactiveScreen = document.getElementById("inactiveScreen");
+
+      if (!active) {
+        callScreen.classList.remove("ready");
+        inactiveScreen.classList.add("visible");
+        return;
+      }
+
+      inactiveScreen.classList.remove("visible");
+
+      document.title = (settings["Caller Name"] || "Active") + " Call";
+
+      setText("displayTime", settings["Display Time"] || "10:47");
+      setText("callerName", settings["Caller Name"] || "Caller");
+      setText("callStatus", settings["Call Status"] || "00:47");
+      setText("signalText", settings["Signal"] || "5G");
+
+      const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
+      setText("batteryPercent", battery + "%");
+      document.getElementById("batteryFill").style.width = battery + "%";
+
+      const signalBars = clamp(parseInt(settings["Signal Bars"] || "4", 10), 1, 4);
+      document.getElementById("signalBars").className = "signal-bars bars-" + signalBars;
+
+      setCssVar("--header-colour", settings["Header Colour"]);
+      setCssVar("--middle-colour", settings["Middle Colour"]);
+      setCssVar("--footer-colour", settings["Footer Colour"]);
+      setCssVar("--text-colour", settings["Text Colour"]);
+      setCssVar("--muted-text-colour", settings["Muted Text Colour"]);
+      setCssVar("--avatar-colour", settings["Avatar Colour"]);
+      setCssVar("--button-colour", settings["Button Colour"]);
+      setCssVar("--hangup-colour", settings["Hangup Colour"]);
+
+      if (settings["Wallpaper Image URL"]) {
+        setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
+      } else {
+        setCssVar("--wallpaper", "none");
+      }
+
+      const avatar = document.getElementById("avatar");
+
+      if (settings["Caller Image URL"]) {
+        avatar.textContent = "";
+        avatar.style.backgroundImage = `url("${settings["Caller Image URL"]}")`;
+      } else {
+        avatar.style.backgroundImage = "";
+        avatar.textContent = settings["Avatar Initials"] || initials(settings["Caller Name"]);
+      }
+
+      callScreen.classList.add("ready");
+    }
+
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    function setCssVar(name, value) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+
+    function clamp(value, min, max) {
+      if (isNaN(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function initials(name) {
+      if (!name) return "?";
+      return String(name)
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("");
+    }
+
+    loadSettings();
+    setInterval(loadSettings, 1000);
+  </script>
+</body>
+</html>
