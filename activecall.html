@@ -2,23 +2,13 @@
 <html>
 <head>
   <meta charset="UTF-8">
-
-  <!--
-    activecall.html
-    ---------------
-    Full-screen fake active call prop page.
-    Pulls all visible data from a Google Sheet through Apps Script API.
-  -->
-
   <meta
     name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
   >
-
   <title>Active Call</title>
 
   <style>
-    /* ---------- Reset ---------- */
     html,
     body {
       margin: 0;
@@ -31,7 +21,6 @@
       -webkit-text-size-adjust: 100%;
     }
 
-    /* ---------- Main call screen ---------- */
     .call-screen {
       position: fixed;
       inset: 0;
@@ -55,14 +44,14 @@
       opacity: 1;
     }
 
-    /* ---------- Top status bar ---------- */
     .status-bar {
       padding: calc(8px + env(safe-area-inset-top)) 18px 8px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 14px;
-      font-weight: 600;
+      font-weight: 700;
+      letter-spacing: 0.1px;
     }
 
     .status-right {
@@ -123,14 +112,13 @@
       background: currentColor;
     }
 
-    /* ---------- Main call content ---------- */
     .call-main {
       flex: 1;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 18px;
+      padding: 18px 18px 80px;
       text-align: center;
     }
 
@@ -152,35 +140,50 @@
 
     .caller-name {
       font-size: 34px;
-      font-weight: 600;
+      font-weight: 700;
       margin-bottom: 9px;
     }
 
-    .call-status {
-      font-size: 18px;
+    .optional-status {
+      font-size: 16px;
       color: var(--muted-text-colour, #b8b8b8);
+      margin-bottom: 4px;
+      display: none;
     }
 
-    /* ---------- Bottom controls ---------- */
+    .optional-status.visible {
+      display: block;
+    }
+
+    .call-timer {
+      font-size: 18px;
+      color: var(--muted-text-colour, #b8b8b8);
+      font-weight: 500;
+    }
+
     .call-footer {
-      padding: 20px 24px calc(34px + env(safe-area-inset-bottom));
-      background: rgba(0,0,0,0.08);
+      padding: 18px 24px calc(34px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.02);
     }
 
     .control-row {
-      display: flex;
-      justify-content: space-around;
-      align-items: center;
-      margin-bottom: 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      align-items: end;
+      gap: 18px;
+      max-width: 460px;
+      margin: 0 auto;
     }
 
     .control {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
+      gap: 9px;
       color: var(--text-colour, #ffffff);
-      font-size: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      min-width: 0;
     }
 
     .control-circle {
@@ -191,24 +194,115 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 23px;
+      color: white;
+      position: relative;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.18);
     }
 
-    .hangup {
+    .control-circle.hangup-circle {
       width: 68px;
       height: 68px;
-      border-radius: 50%;
       background: var(--hangup-colour, #ff3b30);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 32px;
-      margin: 0 auto;
+    }
+
+    .icon-speaker {
+      width: 26px;
+      height: 22px;
+      position: relative;
+    }
+
+    .icon-speaker::before {
+      content: "";
+      position: absolute;
+      left: 2px;
+      top: 6px;
+      width: 8px;
+      height: 10px;
+      background: white;
+      border-radius: 2px;
+    }
+
+    .icon-speaker::after {
+      content: "";
+      position: absolute;
+      left: 9px;
+      top: 3px;
+      width: 12px;
+      height: 16px;
+      border: 3px solid white;
+      border-left: none;
+      border-radius: 0 14px 14px 0;
+    }
+
+    .icon-mute {
+      width: 24px;
+      height: 28px;
+      position: relative;
+    }
+
+    .icon-mute::before {
+      content: "";
+      position: absolute;
+      left: 8px;
+      top: 2px;
+      width: 8px;
+      height: 15px;
+      border: 3px solid white;
+      border-radius: 8px;
+    }
+
+    .icon-mute::after {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 17px;
+      width: 18px;
+      height: 9px;
+      border-bottom: 3px solid white;
+      border-radius: 0 0 12px 12px;
+    }
+
+    .icon-mute .slash {
+      position: absolute;
+      width: 31px;
+      height: 3px;
+      background: white;
+      left: -4px;
+      top: 13px;
+      transform: rotate(-42deg);
+      border-radius: 2px;
+    }
+
+    .icon-handset {
+      width: 32px;
+      height: 32px;
+      position: relative;
       transform: rotate(135deg);
     }
 
-    /* ---------- Inactive fallback ---------- */
+    .icon-handset::before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 8px;
+      width: 23px;
+      height: 13px;
+      border: 5px solid white;
+      border-top: none;
+      border-radius: 0 0 18px 18px;
+    }
+
+    .icon-handset::after {
+      content: "";
+      position: absolute;
+      left: 0px;
+      top: 15px;
+      width: 32px;
+      height: 8px;
+      border-radius: 8px;
+      background: white;
+    }
+
     .inactive {
       position: fixed;
       inset: 0;
@@ -228,7 +322,6 @@
 
 <body>
   <div class="call-screen" id="callScreen">
-    <!-- Status bar -->
     <div class="status-bar">
       <div id="displayTime">10:47</div>
 
@@ -244,33 +337,36 @@
       </div>
     </div>
 
-    <!-- Main caller area -->
     <main class="call-main">
       <div class="avatar" id="avatar">J</div>
       <div class="caller-name" id="callerName">Jess</div>
-      <div class="call-status" id="callStatus">00:47</div>
+      <div class="optional-status" id="callStatusText">Calling…</div>
+      <div class="call-timer" id="callTimer">00:47</div>
     </main>
 
-    <!-- Fake call controls -->
     <footer class="call-footer">
       <div class="control-row">
         <div class="control">
-          <div class="control-circle">◦</div>
-          <div>Mute</div>
-        </div>
-
-        <div class="control">
-          <div class="control-circle">⌕</div>
-          <div>Keypad</div>
-        </div>
-
-        <div class="control">
-          <div class="control-circle">◉</div>
+          <div class="control-circle">
+            <span class="icon-speaker"></span>
+          </div>
           <div>Speaker</div>
         </div>
-      </div>
 
-      <div class="hangup">☎</div>
+        <div class="control">
+          <div class="control-circle hangup-circle">
+            <span class="icon-handset"></span>
+          </div>
+          <div>&nbsp;</div>
+        </div>
+
+        <div class="control">
+          <div class="control-circle">
+            <span class="icon-mute"><span class="slash"></span></span>
+          </div>
+          <div>Mute</div>
+        </div>
+      </div>
     </footer>
   </div>
 
@@ -279,7 +375,12 @@
   <script src="config.js"></script>
 
   <script>
-    /* ---------- API helper ---------- */
+    let timerBaseSeconds = 0;
+    let timerStartedAt = Date.now();
+    let displayTimeBaseMinutes = 0;
+    let displayTimeStartedAt = Date.now();
+    let hasInitialisedTimers = false;
+
     function apiUrl(action) {
       const url = new URL(API_URL);
       url.searchParams.set("action", action);
@@ -292,7 +393,6 @@
           method: "GET",
           redirect: "follow"
         });
-
         const settings = await response.json();
         applySettings(settings);
       } catch (error) {
@@ -301,7 +401,9 @@
     }
 
     function applySettings(settings) {
-      const active = settings["Active"] === true || String(settings["Active"]).toUpperCase() === "TRUE";
+      const active =
+        settings["Active"] === true ||
+        String(settings["Active"]).toUpperCase() === "TRUE";
 
       const callScreen = document.getElementById("callScreen");
       const inactiveScreen = document.getElementById("inactiveScreen");
@@ -309,6 +411,7 @@
       if (!active) {
         callScreen.classList.remove("ready");
         inactiveScreen.classList.add("visible");
+        hasInitialisedTimers = false;
         return;
       }
 
@@ -316,10 +419,18 @@
 
       document.title = (settings["Caller Name"] || "Active") + " Call";
 
-      setText("displayTime", settings["Display Time"] || "10:47");
       setText("callerName", settings["Caller Name"] || "Caller");
-      setText("callStatus", settings["Call Status"] || "00:47");
       setText("signalText", settings["Signal"] || "5G");
+
+      const statusText = settings["Call Status Text"] || "";
+      const statusEl = document.getElementById("callStatusText");
+
+      if (statusText) {
+        statusEl.textContent = statusText;
+        statusEl.classList.add("visible");
+      } else {
+        statusEl.classList.remove("visible");
+      }
 
       const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
       setText("batteryPercent", battery + "%");
@@ -353,7 +464,70 @@
         avatar.textContent = settings["Avatar Initials"] || initials(settings["Caller Name"]);
       }
 
+      initialiseTimersIfNeeded(settings);
       callScreen.classList.add("ready");
+    }
+
+    function initialiseTimersIfNeeded(settings) {
+      if (hasInitialisedTimers) return;
+
+      timerBaseSeconds = parseTimerToSeconds(settings["Call Timer"] || "00:00");
+      timerStartedAt = Date.now();
+
+      displayTimeBaseMinutes = parseClockToMinutes(settings["Display Time"] || "10:47");
+      displayTimeStartedAt = Date.now();
+
+      hasInitialisedTimers = true;
+      updateLiveClocks();
+    }
+
+    function updateLiveClocks() {
+      if (!hasInitialisedTimers) return;
+
+      const elapsedSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
+      setText("callTimer", formatTimer(timerBaseSeconds + elapsedSeconds));
+
+      const elapsedMinutes = Math.floor((Date.now() - displayTimeStartedAt) / 60000);
+      setText("displayTime", formatClockMinutes(displayTimeBaseMinutes + elapsedMinutes));
+    }
+
+    function parseTimerToSeconds(text) {
+      const parts = String(text || "0").split(":").map(Number).filter(n => !isNaN(n));
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 1) return parts[0];
+      return 0;
+    }
+
+    function formatTimer(totalSeconds) {
+      totalSeconds = Math.max(0, totalSeconds);
+
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (hours > 0) {
+        return String(hours).padStart(2, "0") + ":" +
+          String(minutes).padStart(2, "0") + ":" +
+          String(seconds).padStart(2, "0");
+      }
+
+      return String(minutes).padStart(2, "0") + ":" +
+        String(seconds).padStart(2, "0");
+    }
+
+    function parseClockToMinutes(text) {
+      const match = String(text || "").match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) return 0;
+      return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    }
+
+    function formatClockMinutes(totalMinutes) {
+      const minutesInDay = 24 * 60;
+      const wrapped = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+      const hours = Math.floor(wrapped / 60);
+      const minutes = wrapped % 60;
+      return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
     }
 
     function setText(id, text) {
@@ -381,6 +555,7 @@
 
     loadSettings();
     setInterval(loadSettings, 1000);
+    setInterval(updateLiveClocks, 250);
   </script>
 </body>
 </html>
