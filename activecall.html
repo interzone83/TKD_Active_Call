@@ -2,58 +2,760 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!--
+    activecall.html v3.1
+    --------------------
+    Combined incoming call + active call + declined/black screen behaviour.
+
+    Controlled by Google Sheet via Apps Script API.
+
+    Key behaviour:
+    - Incoming: shows caller, pulsing Calling dots, Decline and Accept buttons.
+    - Accept: switches locally to active call with live timer.
+    - Decline: shows Call declined, waits for Decline Timeout Seconds, then goes black and stays black.
+    - Refresh the browser page to reset after local decline blackout.
+  -->
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  >
+
   <title>Call</title>
+
   <style>
-    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-text-size-adjust:100%}
-    .call-screen{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--wallpaper,none),linear-gradient(180deg,var(--header-colour,#101010) 0%,var(--middle-colour,#151515) 42%,var(--footer-colour,#101010) 100%);background-size:cover;background-position:center;color:var(--text-colour,#fff);opacity:0}.call-screen.ready{opacity:1}.hidden{display:none!important}
-    .status-bar{padding:calc(8px + env(safe-area-inset-top)) 18px 8px;display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;letter-spacing:.1px}.status-right{display:flex;align-items:center;gap:8px}.signal-bars{display:flex;align-items:end;gap:2px;height:13px}.signal-bars span{width:3px;background:currentColor;border-radius:2px;opacity:.28}.signal-bars span:nth-child(1){height:4px}.signal-bars span:nth-child(2){height:7px}.signal-bars span:nth-child(3){height:10px}.signal-bars span:nth-child(4){height:13px}.signal-bars.bars-1 span:nth-child(-n+1),.signal-bars.bars-2 span:nth-child(-n+2),.signal-bars.bars-3 span:nth-child(-n+3),.signal-bars.bars-4 span:nth-child(-n+4){opacity:1}.battery{width:28px;height:13px;border:1.8px solid currentColor;border-radius:3px;position:relative;overflow:hidden}.battery:after{content:"";position:absolute;right:-4px;top:3px;width:3px;height:6px;background:currentColor;border-radius:0 2px 2px 0}.battery-fill{height:100%;width:43%;background:currentColor}
-    .call-main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 18px 80px;text-align:center}.incoming-status{font-size:19px;color:var(--muted-text-colour,#b8b8b8);margin-bottom:34px;height:24px;letter-spacing:.2px}.dots span{opacity:.2;animation:pulseDot 1.2s infinite}.dots span:nth-child(2){animation-delay:.18s}.dots span:nth-child(3){animation-delay:.36s}@keyframes pulseDot{0%,100%{opacity:.2}45%{opacity:1}}
-    .avatar{width:138px;height:138px;border-radius:50%;background:var(--avatar-colour,#333);background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:500;margin-bottom:28px;box-shadow:0 12px 40px rgba(0,0,0,.35)}.caller-name{font-size:34px;font-weight:700;margin-bottom:9px}.optional-status{font-size:16px;color:var(--muted-text-colour,#b8b8b8);margin-bottom:4px;display:none}.optional-status.visible{display:block}.call-timer{font-size:18px;color:var(--muted-text-colour,#b8b8b8);font-weight:500}.declined-text{font-size:18px;color:var(--muted-text-colour,#b8b8b8);margin-top:8px}
-    .call-footer{padding:18px 24px calc(34px + env(safe-area-inset-bottom));background:rgba(0,0,0,.02)}.control-row{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:end;gap:18px;max-width:460px;margin:0 auto}.incoming-row{grid-template-columns:1fr 1fr;max-width:330px;gap:64px}.control{display:flex;flex-direction:column;align-items:center;gap:9px;color:var(--text-colour,#fff);font-size:13px;font-weight:500;min-width:0}.control-circle{width:58px;height:58px;border-radius:50%;background:var(--button-colour,#2b2b2b);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,.18);border:none;padding:0}.incoming-circle{width:68px;height:68px}.hangup-circle{background:var(--hangup-colour,#ff3b30)}.accept-circle{background:var(--accept-colour,#34c759)}.control-icon{width:30px;height:30px;display:block;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.speaker-icon,.mute-icon{width:31px;height:31px}.handset-icon{width:34px;height:34px;fill:currentColor;stroke:none}.handset-decline{transform:rotate(135deg)}.handset-accept{transform:rotate(-45deg)}
-    .inactive{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000;color:#666;font-size:14px}.inactive.visible{display:flex}
+    /* ============================================================
+       1. RESET
+       ============================================================ */
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* ============================================================
+       2. MAIN SCREEN
+       ============================================================ */
+
+    .call-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        var(--wallpaper, none),
+        linear-gradient(
+          180deg,
+          var(--header-colour, #101010) 0%,
+          var(--middle-colour, #151515) 42%,
+          var(--footer-colour, #101010) 100%
+        );
+      background-size: cover;
+      background-position: center;
+      color: var(--text-colour, #ffffff);
+      opacity: 0;
+    }
+
+    .call-screen.ready {
+      opacity: 1;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* ============================================================
+       3. TOP STATUS BAR
+       ============================================================ */
+
+    .status-bar {
+      padding: calc(8px + env(safe-area-inset-top)) 18px 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.1px;
+    }
+
+    .status-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .signal-bars {
+      display: flex;
+      align-items: end;
+      gap: 2px;
+      height: 13px;
+    }
+
+    .signal-bars span {
+      width: 3px;
+      background: currentColor;
+      border-radius: 2px;
+      opacity: 0.28;
+    }
+
+    .signal-bars span:nth-child(1) { height: 4px; }
+    .signal-bars span:nth-child(2) { height: 7px; }
+    .signal-bars span:nth-child(3) { height: 10px; }
+    .signal-bars span:nth-child(4) { height: 13px; }
+
+    .signal-bars.bars-1 span:nth-child(-n+1),
+    .signal-bars.bars-2 span:nth-child(-n+2),
+    .signal-bars.bars-3 span:nth-child(-n+3),
+    .signal-bars.bars-4 span:nth-child(-n+4) {
+      opacity: 1;
+    }
+
+    .battery {
+      width: 28px;
+      height: 13px;
+      border: 1.8px solid currentColor;
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 3px;
+      width: 3px;
+      height: 6px;
+      background: currentColor;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .battery-fill {
+      height: 100%;
+      width: 43%;
+      background: currentColor;
+    }
+
+    /* ============================================================
+       4. CALLER AREA
+       ============================================================ */
+
+    .call-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 18px 18px 80px;
+      text-align: center;
+    }
+
+    .incoming-status {
+      font-size: 19px;
+      color: var(--muted-text-colour, #b8b8b8);
+      margin-bottom: 34px;
+      height: 24px;
+      letter-spacing: 0.2px;
+    }
+
+    .dots span {
+      opacity: 0.2;
+      animation: pulseDot 1.2s infinite;
+    }
+
+    .dots span:nth-child(2) { animation-delay: 0.18s; }
+    .dots span:nth-child(3) { animation-delay: 0.36s; }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.2; }
+      45% { opacity: 1; }
+    }
+
+    .avatar {
+      width: 138px;
+      height: 138px;
+      border-radius: 50%;
+      background: var(--avatar-colour, #333333);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 48px;
+      font-weight: 500;
+      margin-bottom: 28px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+    }
+
+    .caller-name {
+      font-size: 34px;
+      font-weight: 700;
+      margin-bottom: 9px;
+    }
+
+    .optional-status {
+      font-size: 16px;
+      color: var(--muted-text-colour, #b8b8b8);
+      margin-bottom: 4px;
+      display: none;
+    }
+
+    .optional-status.visible {
+      display: block;
+    }
+
+    .call-timer {
+      font-size: 18px;
+      color: var(--muted-text-colour, #b8b8b8);
+      font-weight: 500;
+    }
+
+    .declined-text {
+      font-size: 18px;
+      color: var(--muted-text-colour, #b8b8b8);
+      margin-top: 8px;
+    }
+
+    /* ============================================================
+       5. BUTTONS
+       ============================================================ */
+
+    .call-footer {
+      padding: 18px 24px calc(34px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,0.02);
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      align-items: end;
+      gap: 18px;
+      max-width: 460px;
+      margin: 0 auto;
+    }
+
+    .incoming-row {
+      grid-template-columns: 1fr 1fr;
+      max-width: 330px;
+      gap: 64px;
+    }
+
+    .control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 9px;
+      color: var(--text-colour, #ffffff);
+      font-size: 13px;
+      font-weight: 500;
+      min-width: 0;
+    }
+
+    .control-circle {
+      width: 58px;
+      height: 58px;
+      border-radius: 50%;
+      background: var(--button-colour, #2b2b2b);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      border: none;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .incoming-circle {
+      width: 68px;
+      height: 68px;
+    }
+
+    .hangup-circle {
+      background: var(--hangup-colour, #ff3b30);
+    }
+
+    .accept-circle {
+      background: var(--accept-colour, #34c759);
+    }
+
+    .control-icon {
+      width: 30px;
+      height: 30px;
+      display: block;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2.4;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .speaker-icon,
+    .mute-icon {
+      width: 31px;
+      height: 31px;
+    }
+
+    .handset-icon {
+      width: 34px;
+      height: 34px;
+      fill: currentColor;
+      stroke: none;
+    }
+
+    .handset-decline {
+      transform: rotate(135deg);
+    }
+
+    .handset-accept {
+      transform: rotate(-45deg);
+    }
+
+    /* ============================================================
+       6. BLACK / INACTIVE SCREEN
+       ============================================================ */
+
+    .inactive {
+      position: fixed;
+      inset: 0;
+      display: none;
+      background: #000;
+      z-index: 50;
+    }
+
+    .inactive.visible {
+      display: block;
+    }
   </style>
 </head>
+
 <body>
   <div class="call-screen" id="callScreen">
-    <div class="status-bar"><div id="displayTime">10:47</div><div class="status-right"><div class="signal-bars bars-4" id="signalBars"><span></span><span></span><span></span><span></span></div><span id="signalText">5G</span><span id="batteryPercent">43%</span><div class="battery"><div class="battery-fill" id="batteryFill"></div></div></div></div>
-    <main class="call-main"><div class="incoming-status" id="incomingStatus"><span id="incomingStatusText">Calling</span><span class="dots"><span>.</span><span>.</span><span>.</span></span></div><div class="avatar" id="avatar">J</div><div class="caller-name" id="callerName">Jess</div><div class="optional-status" id="callStatusText">Connected</div><div class="call-timer" id="callTimer">00:00</div><div class="declined-text hidden" id="declinedText">Call declined</div></main>
-    <footer class="call-footer" id="activeControls"><div class="control-row"><div class="control"><button class="control-circle" type="button"><svg class="control-icon speaker-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M16 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path></svg></button><div>Speaker</div></div><div class="control"><button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()"><svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg></button><div>&nbsp;</div></div><div class="control"><button class="control-circle" type="button"><svg class="control-icon mute-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path><path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path><path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path><path d="M19 10v1a7 7 0 0 1-.9 3.4"></path><path d="M12 18v3"></path><path d="M8 21h8"></path><path d="M4 4l16 16"></path></svg></button><div>Mute</div></div></div></footer>
-    <footer class="call-footer hidden" id="incomingControls"><div class="control-row incoming-row"><div class="control"><button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()"><svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg></button><div>Decline</div></div><div class="control"><button class="control-circle incoming-circle accept-circle" type="button" onclick="acceptCall()"><svg class="control-icon handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg></button><div>Accept</div></div></div></footer>
+    <div class="status-bar">
+      <div id="displayTime">10:47</div>
+
+      <div class="status-right">
+        <div class="signal-bars bars-4" id="signalBars">
+          <span></span><span></span><span></span><span></span>
+        </div>
+
+        <span id="signalText">5G</span>
+        <span id="batteryPercent">43%</span>
+
+        <div class="battery">
+          <div class="battery-fill" id="batteryFill"></div>
+        </div>
+      </div>
+    </div>
+
+    <main class="call-main">
+      <div class="incoming-status" id="incomingStatus">
+        <span id="incomingStatusText">Calling</span><span class="dots"><span>.</span><span>.</span><span>.</span></span>
+      </div>
+
+      <div class="avatar" id="avatar">J</div>
+      <div class="caller-name" id="callerName">Jess</div>
+
+      <div class="optional-status" id="callStatusText">Connected</div>
+      <div class="call-timer" id="callTimer">00:00</div>
+      <div class="declined-text hidden" id="declinedText">Call declined</div>
+    </main>
+
+    <footer class="call-footer" id="activeControls">
+      <div class="control-row">
+        <div class="control">
+          <button class="control-circle" type="button">
+            <svg class="control-icon speaker-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+              <path d="M16 8.5a5 5 0 0 1 0 7"></path>
+              <path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
+            </svg>
+          </button>
+          <div>Speaker</div>
+        </div>
+
+        <div class="control">
+          <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
+            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>&nbsp;</div>
+        </div>
+
+        <div class="control">
+          <button class="control-circle" type="button">
+            <svg class="control-icon mute-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path>
+              <path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path>
+              <path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path>
+              <path d="M19 10v1a7 7 0 0 1-.9 3.4"></path>
+              <path d="M12 18v3"></path>
+              <path d="M8 21h8"></path>
+              <path d="M4 4l16 16"></path>
+            </svg>
+          </button>
+          <div>Mute</div>
+        </div>
+      </div>
+    </footer>
+
+    <footer class="call-footer hidden" id="incomingControls">
+      <div class="control-row incoming-row">
+        <div class="control">
+          <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
+            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>Decline</div>
+        </div>
+
+        <div class="control">
+          <button class="control-circle incoming-circle accept-circle" type="button" onclick="acceptCall()">
+            <svg class="control-icon handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>Accept</div>
+        </div>
+      </div>
+    </footer>
   </div>
-  <div class="inactive" id="inactiveScreen"></div><audio id="ringtoneAudio" loop playsinline></audio><script src="config.js"></script>
+
+  <div class="inactive" id="inactiveScreen"></div>
+  <audio id="ringtoneAudio" loop playsinline></audio>
+
+  <script src="config.js"></script>
+
   <script>
-    let timerBaseSeconds=0,timerStartedAt=Date.now(),displayTimeBaseMinutes=0,displayTimeStartedAt=0,hasInitialisedTimers=false,currentState="incoming",locallyOverriddenState=false,latestSettings={};
-    function apiUrl(action){const url=new URL(API_URL);url.searchParams.set("action",action);return url.toString()}
-    async function loadSettings(){try{const response=await fetch(apiUrl("getCallSettings"),{method:"GET",redirect:"follow"});const settings=await response.json();latestSettings=settings;applySettings(settings)}catch(error){console.log("Call settings load error:",error)}}
-    function applySettings(settings){const active=settings["Active"]===true||String(settings["Active"]).toUpperCase()==="TRUE";const callScreen=document.getElementById("callScreen"),inactiveScreen=document.getElementById("inactiveScreen");if(!active){callScreen.classList.remove("ready");inactiveScreen.classList.add("visible");stopRingtone();hasInitialisedTimers=false;locallyOverriddenState=false;return}inactiveScreen.classList.remove("visible");if(!locallyOverriddenState)currentState=normaliseState(settings["Call State"]||"incoming");document.title=(settings["Caller Name"]||"Call")+" Call";setText("callerName",settings["Caller Name"]||"Caller");setText("signalText",settings["Signal"]||"5G");setText("incomingStatusText",settings["Incoming Status Text"]||"Calling");const statusText=settings["Call Status Text"]||"",statusEl=document.getElementById("callStatusText");if(statusText){statusEl.textContent=statusText;statusEl.classList.add("visible")}else statusEl.classList.remove("visible");const battery=clamp(parseInt(settings["Battery %"]||"43",10),0,100);setText("batteryPercent",battery+"%");document.getElementById("batteryFill").style.width=battery+"%";const bars=clamp(parseInt(settings["Signal Bars"]||"4",10),1,4);document.getElementById("signalBars").className="signal-bars bars-"+bars;setCssVar("--header-colour",settings["Header Colour"]);setCssVar("--middle-colour",settings["Middle Colour"]);setCssVar("--footer-colour",settings["Footer Colour"]);setCssVar("--text-colour",settings["Text Colour"]);setCssVar("--muted-text-colour",settings["Muted Text Colour"]);setCssVar("--avatar-colour",settings["Avatar Colour"]);setCssVar("--button-colour",settings["Button Colour"]);setCssVar("--accept-colour",settings["Accept Colour"]);setCssVar("--hangup-colour",settings["Hangup Colour"]);setCssVar("--wallpaper",settings["Wallpaper Image URL"]?`url("${settings["Wallpaper Image URL"]}")`:"none");applyAvatar(settings);if(!displayTimeStartedAt){displayTimeBaseMinutes=parseClockToMinutes(settings["Display Time"]||"10:47");displayTimeStartedAt=Date.now()}applyState(currentState,settings);callScreen.classList.add("ready")}
-    function applyAvatar(settings){const avatar=document.getElementById("avatar");if(settings["Caller Image URL"]){avatar.textContent="";avatar.style.backgroundImage=`url("${settings["Caller Image URL"]}")`}else{avatar.style.backgroundImage="";avatar.textContent=settings["Avatar Initials"]||initials(settings["Caller Name"])}}
-    function applyState(state,settings){currentState=normaliseState(state);const incomingStatus=document.getElementById("incomingStatus"),activeControls=document.getElementById("activeControls"),incomingControls=document.getElementById("incomingControls"),callTimer=document.getElementById("callTimer"),declinedText=document.getElementById("declinedText"),callStatusText=document.getElementById("callStatusText");if(currentState==="incoming"){incomingStatus.classList.remove("hidden");incomingControls.classList.remove("hidden");activeControls.classList.add("hidden");callTimer.classList.add("hidden");declinedText.classList.add("hidden");callStatusText.classList.remove("visible");hasInitialisedTimers=false;startRingtone(settings);return}if(currentState==="active"){incomingStatus.classList.add("hidden");incomingControls.classList.add("hidden");activeControls.classList.remove("hidden");callTimer.classList.remove("hidden");declinedText.classList.add("hidden");stopRingtone();initialiseTimersIfNeeded(settings);return}incomingStatus.classList.add("hidden");incomingControls.classList.add("hidden");activeControls.classList.add("hidden");callTimer.classList.add("hidden");declinedText.classList.remove("hidden");callStatusText.classList.remove("visible");stopRingtone();hasInitialisedTimers=false}
-    function acceptCall(){locallyOverriddenState=true;currentState="active";timerBaseSeconds=parseTimerToSeconds(latestSettings["Call Timer"]||"00:00");timerStartedAt=Date.now();hasInitialisedTimers=true;applyState("active",latestSettings);updateLiveClocks()}
+    let timerBaseSeconds = 0;
+    let timerStartedAt = Date.now();
+
+    let displayTimeBaseMinutes = 0;
+    let displayTimeStartedAt = 0;
+
+    let hasInitialisedTimers = false;
+    let currentState = "incoming";
+    let locallyOverriddenState = false;
+    let latestSettings = {};
+    let lockedBlackAfterDecline = false;
+
+    function apiUrl(action) {
+      const url = new URL(API_URL);
+      url.searchParams.set("action", action);
+      return url.toString();
+    }
+
+    async function loadSettings() {
+      try {
+        const response = await fetch(apiUrl("getCallSettings"), {
+          method: "GET",
+          redirect: "follow"
+        });
+
+        const settings = await response.json();
+        latestSettings = settings;
+        applySettings(settings);
+      } catch (error) {
+        console.log("Call settings load error:", error);
+      }
+    }
+
+    function applySettings(settings) {
+      if (lockedBlackAfterDecline) return;
+
+      const active =
+        settings["Active"] === true ||
+        String(settings["Active"]).toUpperCase() === "TRUE";
+
+      const callScreen = document.getElementById("callScreen");
+      const inactiveScreen = document.getElementById("inactiveScreen");
+
+      if (!active) {
+        callScreen.classList.remove("ready");
+        inactiveScreen.classList.add("visible");
+        stopRingtone();
+        hasInitialisedTimers = false;
+        locallyOverriddenState = false;
+        return;
+      }
+
+      inactiveScreen.classList.remove("visible");
+
+      if (!locallyOverriddenState) {
+        currentState = normaliseState(settings["Call State"] || "incoming");
+      }
+
+      document.title = (settings["Caller Name"] || "Call") + " Call";
+
+      setText("callerName", settings["Caller Name"] || "Caller");
+      setText("signalText", settings["Signal"] || "5G");
+      setText("incomingStatusText", settings["Incoming Status Text"] || "Calling");
+
+      const statusText = settings["Call Status Text"] || "";
+      const statusEl = document.getElementById("callStatusText");
+
+      if (statusText) {
+        statusEl.textContent = statusText;
+        statusEl.classList.add("visible");
+      } else {
+        statusEl.classList.remove("visible");
+      }
+
+      const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
+      setText("batteryPercent", battery + "%");
+      document.getElementById("batteryFill").style.width = battery + "%";
+
+      const signalBars = clamp(parseInt(settings["Signal Bars"] || "4", 10), 1, 4);
+      document.getElementById("signalBars").className = "signal-bars bars-" + signalBars;
+
+      setCssVar("--header-colour", settings["Header Colour"]);
+      setCssVar("--middle-colour", settings["Middle Colour"]);
+      setCssVar("--footer-colour", settings["Footer Colour"]);
+      setCssVar("--text-colour", settings["Text Colour"]);
+      setCssVar("--muted-text-colour", settings["Muted Text Colour"]);
+      setCssVar("--avatar-colour", settings["Avatar Colour"]);
+      setCssVar("--button-colour", settings["Button Colour"]);
+      setCssVar("--accept-colour", settings["Accept Colour"]);
+      setCssVar("--hangup-colour", settings["Hangup Colour"]);
+
+      if (settings["Wallpaper Image URL"]) {
+        setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
+      } else {
+        setCssVar("--wallpaper", "none");
+      }
+
+      applyAvatar(settings);
+      initialiseDisplayTimeIfNeeded(settings);
+      applyState(currentState, settings);
+
+      callScreen.classList.add("ready");
+    }
+
+    function applyAvatar(settings) {
+      const avatar = document.getElementById("avatar");
+
+      if (settings["Caller Image URL"]) {
+        avatar.textContent = "";
+        avatar.style.backgroundImage = `url("${settings["Caller Image URL"]}")`;
+      } else {
+        avatar.style.backgroundImage = "";
+        avatar.textContent = settings["Avatar Initials"] || initials(settings["Caller Name"]);
+      }
+    }
+
+    function applyState(state, settings) {
+      currentState = normaliseState(state);
+
+      const incomingStatus = document.getElementById("incomingStatus");
+      const activeControls = document.getElementById("activeControls");
+      const incomingControls = document.getElementById("incomingControls");
+      const callTimer = document.getElementById("callTimer");
+      const declinedText = document.getElementById("declinedText");
+      const callStatusText = document.getElementById("callStatusText");
+
+      if (currentState === "incoming") {
+        incomingStatus.classList.remove("hidden");
+        incomingControls.classList.remove("hidden");
+        activeControls.classList.add("hidden");
+        callTimer.classList.add("hidden");
+        declinedText.classList.add("hidden");
+        callStatusText.classList.remove("visible");
+
+        hasInitialisedTimers = false;
+        startRingtone(settings);
+        return;
+      }
+
+      if (currentState === "active") {
+        incomingStatus.classList.add("hidden");
+        incomingControls.classList.add("hidden");
+        activeControls.classList.remove("hidden");
+        callTimer.classList.remove("hidden");
+        declinedText.classList.add("hidden");
+
+        stopRingtone();
+        initialiseCallTimerIfNeeded(settings);
+        return;
+      }
+
+      if (currentState === "declined") {
+        incomingStatus.classList.add("hidden");
+        incomingControls.classList.add("hidden");
+        activeControls.classList.add("hidden");
+        callTimer.classList.add("hidden");
+        declinedText.classList.remove("hidden");
+        callStatusText.classList.remove("visible");
+
+        stopRingtone();
+        hasInitialisedTimers = false;
+      }
+    }
+
+    function acceptCall() {
+      locallyOverriddenState = true;
+      currentState = "active";
+
+      timerBaseSeconds = parseTimerToSeconds(latestSettings["Call Timer"] || "00:00");
+      timerStartedAt = Date.now();
+      hasInitialisedTimers = true;
+
+      applyState("active", latestSettings);
+      updateLiveClocks();
+    }
+
     function declineCall() {
-  locallyOverriddenState = true;
-  currentState = "declined";
-  applyState("declined", latestSettings);
+      locallyOverriddenState = true;
+      currentState = "declined";
+      applyState("declined", latestSettings);
 
-  const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
-  const safeTimeout = isNaN(timeoutSeconds) ? 3 : timeoutSeconds;
+      const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
+      const safeTimeout = isNaN(timeoutSeconds) ? 3 : Math.max(0, timeoutSeconds);
 
-  setTimeout(() => {
-    document.getElementById("callScreen").classList.remove("ready");
-    document.getElementById("inactiveScreen").classList.add("visible");
-  }, safeTimeout * 1000);
-}
-    function normaliseState(state){state=String(state||"").toLowerCase().trim();if(state==="active")return"active";if(state==="declined")return"declined";return"incoming"}
-    function startRingtone(settings){const url=settings["Ringtone Audio URL"]||"",audio=document.getElementById("ringtoneAudio");if(!url)return;if(audio.src!==url)audio.src=url;audio.play().catch(error=>console.log("Ringtone play blocked or failed:",error))}
-    function stopRingtone(){const audio=document.getElementById("ringtoneAudio");audio.pause();audio.currentTime=0}
-    function initialiseTimersIfNeeded(settings){if(hasInitialisedTimers)return;timerBaseSeconds=parseTimerToSeconds(settings["Call Timer"]||"00:00");timerStartedAt=Date.now();hasInitialisedTimers=true;updateLiveClocks()}
-    function updateLiveClocks(){if(hasInitialisedTimers&&currentState==="active"){const elapsedSeconds=Math.floor((Date.now()-timerStartedAt)/1000);setText("callTimer",formatTimer(timerBaseSeconds+elapsedSeconds))}if(displayTimeStartedAt){const elapsedMinutes=Math.floor((Date.now()-displayTimeStartedAt)/60000);setText("displayTime",formatClockMinutes(displayTimeBaseMinutes+elapsedMinutes))}}
-    function parseTimerToSeconds(text){const parts=String(text||"0").split(":").map(Number).filter(n=>!isNaN(n));if(parts.length===3)return parts[0]*3600+parts[1]*60+parts[2];if(parts.length===2)return parts[0]*60+parts[1];if(parts.length===1)return parts[0];return 0}
-    function formatTimer(totalSeconds){totalSeconds=Math.max(0,totalSeconds);const h=Math.floor(totalSeconds/3600),m=Math.floor((totalSeconds%3600)/60),s=totalSeconds%60;if(h>0)return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0");return String(m).padStart(2,"0")+":"+String(s).padStart(2,"0")}
-    function parseClockToMinutes(text){const match=String(text||"").match(/^(\d{1,2}):(\d{2})$/);if(!match)return 0;return parseInt(match[1],10)*60+parseInt(match[2],10)}
-    function formatClockMinutes(totalMinutes){const minutesInDay=24*60,wrapped=((totalMinutes%minutesInDay)+minutesInDay)%minutesInDay,h=Math.floor(wrapped/60),m=wrapped%60;return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")}
-    function setText(id,text){document.getElementById(id).textContent=text}function setCssVar(name,value){if(value)document.documentElement.style.setProperty(name,value)}function clamp(value,min,max){if(isNaN(value))return min;return Math.max(min,Math.min(max,value))}function initials(name){if(!name)return"?";return String(name).split(/\s+/).filter(Boolean).slice(0,2).map(part=>part[0].toUpperCase()).join("")}
-    loadSettings();setInterval(loadSettings,1000);setInterval(updateLiveClocks,250);
+      setTimeout(() => {
+        lockedBlackAfterDecline = true;
+        stopRingtone();
+        document.getElementById("callScreen").classList.remove("ready");
+        document.getElementById("inactiveScreen").classList.add("visible");
+      }, safeTimeout * 1000);
+    }
+
+    function normaliseState(state) {
+      state = String(state || "").toLowerCase().trim();
+
+      if (state === "active") return "active";
+      if (state === "declined") return "declined";
+      return "incoming";
+    }
+
+    function startRingtone(settings) {
+      const url = settings["Ringtone Audio URL"] || "";
+      const audio = document.getElementById("ringtoneAudio");
+
+      if (!url) return;
+
+      if (audio.src !== url) {
+        audio.src = url;
+      }
+
+      audio.play().catch(error => {
+        console.log("Ringtone play blocked or failed:", error);
+      });
+    }
+
+    function stopRingtone() {
+      const audio = document.getElementById("ringtoneAudio");
+      audio.pause();
+      audio.currentTime = 0;
+    }
+
+    function initialiseCallTimerIfNeeded(settings) {
+      if (hasInitialisedTimers) return;
+
+      timerBaseSeconds = parseTimerToSeconds(settings["Call Timer"] || "00:00");
+      timerStartedAt = Date.now();
+      hasInitialisedTimers = true;
+      updateLiveClocks();
+    }
+
+    function initialiseDisplayTimeIfNeeded(settings) {
+      if (displayTimeStartedAt) return;
+
+      displayTimeBaseMinutes = parseClockToMinutes(settings["Display Time"] || "10:47");
+      displayTimeStartedAt = Date.now();
+    }
+
+    function updateLiveClocks() {
+      if (hasInitialisedTimers && currentState === "active") {
+        const elapsedSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
+        setText("callTimer", formatTimer(timerBaseSeconds + elapsedSeconds));
+      }
+
+      if (displayTimeStartedAt) {
+        const elapsedMinutes = Math.floor((Date.now() - displayTimeStartedAt) / 60000);
+        setText("displayTime", formatClockMinutes(displayTimeBaseMinutes + elapsedMinutes));
+      }
+    }
+
+    function parseTimerToSeconds(text) {
+      const parts = String(text || "0")
+        .split(":")
+        .map(Number)
+        .filter(number => !isNaN(number));
+
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 1) return parts[0];
+      return 0;
+    }
+
+    function formatTimer(totalSeconds) {
+      totalSeconds = Math.max(0, totalSeconds);
+
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (hours > 0) {
+        return String(hours).padStart(2, "0") + ":" +
+          String(minutes).padStart(2, "0") + ":" +
+          String(seconds).padStart(2, "0");
+      }
+
+      return String(minutes).padStart(2, "0") + ":" +
+        String(seconds).padStart(2, "0");
+    }
+
+    function parseClockToMinutes(text) {
+      const match = String(text || "").match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) return 0;
+      return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    }
+
+    function formatClockMinutes(totalMinutes) {
+      const minutesInDay = 24 * 60;
+      const wrapped = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+      const hours = Math.floor(wrapped / 60);
+      const minutes = wrapped % 60;
+      return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
+    }
+
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    function setCssVar(name, value) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+
+    function clamp(value, min, max) {
+      if (isNaN(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function initials(name) {
+      if (!name) return "?";
+
+      return String(name)
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("");
+    }
+
+    loadSettings();
+    setInterval(loadSettings, 1000);
+    setInterval(updateLiveClocks, 250);
   </script>
 </body>
 </html>
