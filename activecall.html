@@ -35,10 +35,13 @@
   currentState = "declined";
   applyState("declined", latestSettings);
 
+  const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
+  const safeTimeout = isNaN(timeoutSeconds) ? 3 : timeoutSeconds;
+
   setTimeout(() => {
     document.getElementById("callScreen").classList.remove("ready");
     document.getElementById("inactiveScreen").classList.add("visible");
-  }, 3000);
+  }, safeTimeout * 1000);
 }
     function normaliseState(state){state=String(state||"").toLowerCase().trim();if(state==="active")return"active";if(state==="declined")return"declined";return"incoming"}
     function startRingtone(settings){const url=settings["Ringtone Audio URL"]||"",audio=document.getElementById("ringtoneAudio");if(!url)return;if(audio.src!==url)audio.src=url;audio.play().catch(error=>console.log("Ringtone play blocked or failed:",error))}
