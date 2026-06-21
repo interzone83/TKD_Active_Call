@@ -30,7 +30,16 @@
     function applyAvatar(settings){const avatar=document.getElementById("avatar");if(settings["Caller Image URL"]){avatar.textContent="";avatar.style.backgroundImage=`url("${settings["Caller Image URL"]}")`}else{avatar.style.backgroundImage="";avatar.textContent=settings["Avatar Initials"]||initials(settings["Caller Name"])}}
     function applyState(state,settings){currentState=normaliseState(state);const incomingStatus=document.getElementById("incomingStatus"),activeControls=document.getElementById("activeControls"),incomingControls=document.getElementById("incomingControls"),callTimer=document.getElementById("callTimer"),declinedText=document.getElementById("declinedText"),callStatusText=document.getElementById("callStatusText");if(currentState==="incoming"){incomingStatus.classList.remove("hidden");incomingControls.classList.remove("hidden");activeControls.classList.add("hidden");callTimer.classList.add("hidden");declinedText.classList.add("hidden");callStatusText.classList.remove("visible");hasInitialisedTimers=false;startRingtone(settings);return}if(currentState==="active"){incomingStatus.classList.add("hidden");incomingControls.classList.add("hidden");activeControls.classList.remove("hidden");callTimer.classList.remove("hidden");declinedText.classList.add("hidden");stopRingtone();initialiseTimersIfNeeded(settings);return}incomingStatus.classList.add("hidden");incomingControls.classList.add("hidden");activeControls.classList.add("hidden");callTimer.classList.add("hidden");declinedText.classList.remove("hidden");callStatusText.classList.remove("visible");stopRingtone();hasInitialisedTimers=false}
     function acceptCall(){locallyOverriddenState=true;currentState="active";timerBaseSeconds=parseTimerToSeconds(latestSettings["Call Timer"]||"00:00");timerStartedAt=Date.now();hasInitialisedTimers=true;applyState("active",latestSettings);updateLiveClocks()}
-    function declineCall(){locallyOverriddenState=true;currentState="declined";applyState("declined",latestSettings)}
+    function declineCall() {
+  locallyOverriddenState = true;
+  currentState = "declined";
+  applyState("declined", latestSettings);
+
+  setTimeout(() => {
+    document.getElementById("callScreen").classList.remove("ready");
+    document.getElementById("inactiveScreen").classList.add("visible");
+  }, 3000);
+}
     function normaliseState(state){state=String(state||"").toLowerCase().trim();if(state==="active")return"active";if(state==="declined")return"declined";return"incoming"}
     function startRingtone(settings){const url=settings["Ringtone Audio URL"]||"",audio=document.getElementById("ringtoneAudio");if(!url)return;if(audio.src!==url)audio.src=url;audio.play().catch(error=>console.log("Ringtone play blocked or failed:",error))}
     function stopRingtone(){const audio=document.getElementById("ringtoneAudio");audio.pause();audio.currentTime=0}
