@@ -4,17 +4,17 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html v3.1
-    --------------------
+    activecall.html generic reskin v1
+    ------------------
     Combined incoming call + active call + declined/black screen behaviour.
 
-    Controlled by Google Sheet via Apps Script API.
-
-    Key behaviour:
-    - Incoming: shows caller, pulsing Calling dots, Decline and Accept buttons.
-    - Accept: switches locally to active call with live timer.
-    - Decline: shows Call declined, waits for Decline Timeout Seconds, then goes black and stays black.
-    - Refresh the browser page to reset after local decline blackout.
+    v4 changes:
+    - Decline goes black after sheet-defined Decline Timeout Seconds.
+    - While black after decline, page keeps polling the sheet.
+    - If sheet is set back to Active = TRUE and Call State = incoming, incoming call appears again.
+    - Calling... dots made slightly bigger/more visible.
+    - Top status bar made slightly smaller.
+    - Added clear comments for easy on-set edits.
   -->
 
   <meta
@@ -26,7 +26,14 @@
 
   <style>
     /* ============================================================
-       1. RESET
+       ACTIVE CALL GENERIC RESKIN v1
+       ------------------------------------------------------------
+       This is deliberately NOT iOS and NOT WhatsApp.
+       It keeps the same functionality but changes the visual language
+       to a generic Android/Samsung-adjacent phone UI.
+
+       Logic, sheet settings, timers, accept/decline behaviour and
+       ringtone handling are unchanged.
        ============================================================ */
 
     html,
@@ -36,14 +43,10 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #000;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #05070a;
+      font-family: Arial, Roboto, Helvetica, sans-serif;
       -webkit-text-size-adjust: 100%;
     }
-
-    /* ============================================================
-       2. MAIN SCREEN
-       ============================================================ */
 
     .call-screen {
       position: fixed;
@@ -52,51 +55,49 @@
       flex-direction: column;
       background:
         var(--wallpaper, none),
+        radial-gradient(circle at 50% 6%, rgba(58, 92, 130, 0.42), transparent 34%),
         linear-gradient(
           180deg,
-          var(--header-colour, #101010) 0%,
-          var(--middle-colour, #151515) 42%,
-          var(--footer-colour, #101010) 100%
+          var(--header-colour, #101923) 0%,
+          var(--middle-colour, #111922) 48%,
+          var(--footer-colour, #080d12) 100%
         );
       background-size: cover;
       background-position: center;
-      color: var(--text-colour, #ffffff);
+      color: var(--text-colour, #f4f7fb);
       opacity: 0;
     }
 
-    .call-screen.ready {
-      opacity: 1;
-    }
-
-    .hidden {
-      display: none !important;
-    }
+    .call-screen.ready { opacity: 1; }
+    .hidden { display: none !important; }
 
     /* ============================================================
-       3. TOP STATUS BAR
+       TOP STATUS BAR
+       ON-SET EDIT POINT: change font-size if status text is too big.
        ============================================================ */
 
     .status-bar {
-      padding: calc(8px + env(safe-area-inset-top)) 18px 8px;
+      padding: calc(8px + env(safe-area-inset-top)) 18px 7px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: 0.1px;
+      color: rgba(244, 247, 251, 0.92);
     }
 
     .status-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 7px;
     }
 
     .signal-bars {
       display: flex;
       align-items: end;
       gap: 2px;
-      height: 13px;
+      height: 11px;
     }
 
     .signal-bars span {
@@ -106,10 +107,10 @@
       opacity: 0.28;
     }
 
-    .signal-bars span:nth-child(1) { height: 4px; }
-    .signal-bars span:nth-child(2) { height: 7px; }
-    .signal-bars span:nth-child(3) { height: 10px; }
-    .signal-bars span:nth-child(4) { height: 13px; }
+    .signal-bars span:nth-child(1) { height: 3px; }
+    .signal-bars span:nth-child(2) { height: 6px; }
+    .signal-bars span:nth-child(3) { height: 8px; }
+    .signal-bars span:nth-child(4) { height: 11px; }
 
     .signal-bars.bars-1 span:nth-child(-n+1),
     .signal-bars.bars-2 span:nth-child(-n+2),
@@ -119,9 +120,9 @@
     }
 
     .battery {
-      width: 28px;
-      height: 13px;
-      border: 1.8px solid currentColor;
+      width: 24px;
+      height: 11px;
+      border: 1.6px solid currentColor;
       border-radius: 3px;
       position: relative;
       overflow: hidden;
@@ -133,7 +134,7 @@
       right: -4px;
       top: 3px;
       width: 3px;
-      height: 6px;
+      height: 5px;
       background: currentColor;
       border-radius: 0 2px 2px 0;
     }
@@ -144,9 +145,20 @@
       background: currentColor;
     }
 
-    /* ============================================================
-       4. CALLER AREA
-       ============================================================ */
+    /* Generic app label to move it away from iOS full-screen call styling. */
+    .status-bar::after {
+      content: "Voice call";
+      position: absolute;
+      top: calc(34px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(244, 247, 251, 0.46);
+      pointer-events: none;
+    }
 
     .call-main {
       flex: 1;
@@ -154,90 +166,102 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      padding: 18px 18px 80px;
+      padding: 42px 18px 92px;
       text-align: center;
     }
 
+    /* ============================================================
+       INCOMING CALLING... TEXT
+       ON-SET EDIT POINT: change font-size to adjust Calling... size.
+       ============================================================ */
+
     .incoming-status {
-      font-size: 19px;
-      color: var(--muted-text-colour, #b8b8b8);
-      margin-bottom: 34px;
-      height: 24px;
-      letter-spacing: 0.2px;
+      font-size: 22px;
+      color: var(--muted-text-colour, #aeb8c5);
+      margin-bottom: 28px;
+      height: 30px;
+      letter-spacing: 0.02em;
+      font-weight: 600;
     }
 
     .dots span {
-      opacity: 0.2;
+      opacity: 0.25;
       animation: pulseDot 1.2s infinite;
+      font-weight: 800;
     }
 
     .dots span:nth-child(2) { animation-delay: 0.18s; }
     .dots span:nth-child(3) { animation-delay: 0.36s; }
 
     @keyframes pulseDot {
-      0%, 100% { opacity: 0.2; }
+      0%, 100% { opacity: 0.25; }
       45% { opacity: 1; }
     }
 
     .avatar {
-      width: 138px;
-      height: 138px;
-      border-radius: 50%;
-      background: var(--avatar-colour, #333333);
+      width: 128px;
+      height: 128px;
+      border-radius: 28px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02)),
+        var(--avatar-colour, #2d3a48);
       background-size: cover;
       background-position: center;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 48px;
-      font-weight: 500;
-      margin-bottom: 28px;
-      box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+      font-size: 46px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      box-shadow:
+        0 18px 48px rgba(0,0,0,0.34),
+        inset 0 0 0 1px rgba(255,255,255,0.10);
     }
 
     .caller-name {
-      font-size: 34px;
-      font-weight: 700;
+      font-size: 31px;
+      font-weight: 800;
       margin-bottom: 9px;
+      letter-spacing: -0.02em;
     }
 
     .optional-status {
-      font-size: 16px;
-      color: var(--muted-text-colour, #b8b8b8);
-      margin-bottom: 4px;
+      font-size: 15px;
+      color: var(--muted-text-colour, #aeb8c5);
+      margin-bottom: 5px;
       display: none;
+      font-weight: 600;
     }
 
-    .optional-status.visible {
-      display: block;
-    }
+    .optional-status.visible { display: block; }
 
     .call-timer {
       font-size: 18px;
-      color: var(--muted-text-colour, #b8b8b8);
-      font-weight: 500;
+      color: var(--muted-text-colour, #aeb8c5);
+      font-weight: 700;
+      letter-spacing: 0.04em;
     }
 
     .declined-text {
-      font-size: 18px;
-      color: var(--muted-text-colour, #b8b8b8);
-      margin-top: 8px;
+      font-size: 17px;
+      color: var(--muted-text-colour, #aeb8c5);
+      margin-top: 9px;
+      font-weight: 700;
     }
 
-    /* ============================================================
-       5. BUTTONS
-       ============================================================ */
-
     .call-footer {
-      padding: 18px 24px calc(34px + env(safe-area-inset-bottom));
-      background: rgba(0,0,0,0.02);
+      padding: 16px 20px calc(28px + env(safe-area-inset-bottom));
+      background: rgba(5, 9, 13, 0.54);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
     }
 
     .control-row {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
       align-items: end;
-      gap: 18px;
+      gap: 12px;
       max-width: 460px;
       margin: 0 auto;
     }
@@ -245,83 +269,75 @@
     .incoming-row {
       grid-template-columns: 1fr 1fr;
       max-width: 330px;
-      gap: 64px;
+      gap: 34px;
     }
 
     .control {
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 9px;
-      color: var(--text-colour, #ffffff);
-      font-size: 13px;
-      font-weight: 500;
+      justify-content: center;
+      gap: 8px;
+      color: var(--text-colour, #f4f7fb);
+      font-size: 12px;
+      font-weight: 800;
       min-width: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .control-circle {
-      width: 58px;
-      height: 58px;
-      border-radius: 50%;
-      background: var(--button-colour, #2b2b2b);
+      width: 66px;
+      height: 56px;
+      border-radius: 18px;
+      background: var(--button-colour, #26313d);
       display: flex;
       align-items: center;
       justify-content: center;
       color: white;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+      box-shadow:
+        0 8px 22px rgba(0,0,0,0.24),
+        inset 0 0 0 1px rgba(255,255,255,0.08);
       border: none;
       padding: 0;
       -webkit-tap-highlight-color: transparent;
     }
 
     .incoming-circle {
-      width: 68px;
-      height: 68px;
+      width: 78px;
+      height: 62px;
+      border-radius: 20px;
     }
 
-    .hangup-circle {
-      background: var(--hangup-colour, #ff3b30);
-    }
-
-    .accept-circle {
-      background: var(--accept-colour, #34c759);
-    }
+    .hangup-circle { background: var(--hangup-colour, #d83b36); }
+    .accept-circle { background: var(--accept-colour, #168d5a); }
 
     .control-icon {
-      width: 30px;
-      height: 30px;
+      width: 28px;
+      height: 28px;
       display: block;
       stroke: currentColor;
       fill: none;
-      stroke-width: 2.4;
+      stroke-width: 2.45;
       stroke-linecap: round;
       stroke-linejoin: round;
     }
 
     .speaker-icon,
     .mute-icon {
-      width: 31px;
-      height: 31px;
+      width: 29px;
+      height: 29px;
     }
 
     .handset-icon {
-      width: 34px;
-      height: 34px;
+      width: 31px;
+      height: 31px;
       fill: currentColor;
       stroke: none;
     }
 
-    .handset-decline {
-      transform: rotate(135deg);
-    }
-
-    .handset-accept {
-      transform: rotate(-45deg);
-    }
-
-    /* ============================================================
-       6. BLACK / INACTIVE SCREEN
-       ============================================================ */
+    .handset-decline { transform: rotate(135deg); }
+    .handset-accept { transform: rotate(-45deg); }
 
     .inactive {
       position: fixed;
@@ -331,9 +347,7 @@
       z-index: 50;
     }
 
-    .inactive.visible {
-      display: block;
-    }
+    .inactive.visible { display: block; }
   </style>
 </head>
 
@@ -341,18 +355,11 @@
   <div class="call-screen" id="callScreen">
     <div class="status-bar">
       <div id="displayTime">10:47</div>
-
       <div class="status-right">
-        <div class="signal-bars bars-4" id="signalBars">
-          <span></span><span></span><span></span><span></span>
-        </div>
-
+        <div class="signal-bars bars-4" id="signalBars"><span></span><span></span><span></span><span></span></div>
         <span id="signalText">5G</span>
         <span id="batteryPercent">43%</span>
-
-        <div class="battery">
-          <div class="battery-fill" id="batteryFill"></div>
-        </div>
+        <div class="battery"><div class="battery-fill" id="batteryFill"></div></div>
       </div>
     </div>
 
@@ -360,10 +367,8 @@
       <div class="incoming-status" id="incomingStatus">
         <span id="incomingStatusText">Calling</span><span class="dots"><span>.</span><span>.</span><span>.</span></span>
       </div>
-
       <div class="avatar" id="avatar">J</div>
       <div class="caller-name" id="callerName">Jess</div>
-
       <div class="optional-status" id="callStatusText">Connected</div>
       <div class="call-timer" id="callTimer">00:00</div>
       <div class="declined-text hidden" id="declinedText">Call declined</div>
@@ -374,14 +379,11 @@
         <div class="control">
           <button class="control-circle" type="button">
             <svg class="control-icon speaker-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
-              <path d="M16 8.5a5 5 0 0 1 0 7"></path>
-              <path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
+              <path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M16 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
             </svg>
           </button>
           <div>Speaker</div>
         </div>
-
         <div class="control">
           <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
             <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
@@ -390,17 +392,10 @@
           </button>
           <div>&nbsp;</div>
         </div>
-
         <div class="control">
           <button class="control-circle" type="button">
             <svg class="control-icon mute-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path>
-              <path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path>
-              <path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path>
-              <path d="M19 10v1a7 7 0 0 1-.9 3.4"></path>
-              <path d="M12 18v3"></path>
-              <path d="M8 21h8"></path>
-              <path d="M4 4l16 16"></path>
+              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path><path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path><path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path><path d="M19 10v1a7 7 0 0 1-.9 3.4"></path><path d="M12 18v3"></path><path d="M8 21h8"></path><path d="M4 4l16 16"></path>
             </svg>
           </button>
           <div>Mute</div>
@@ -412,18 +407,13 @@
       <div class="control-row incoming-row">
         <div class="control">
           <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
-            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
-            </svg>
+            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg>
           </button>
           <div>Decline</div>
         </div>
-
         <div class="control">
           <button class="control-circle incoming-circle accept-circle" type="button" onclick="acceptCall()">
-            <svg class="control-icon handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
-            </svg>
+            <svg class="control-icon handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg>
           </button>
           <div>Accept</div>
         </div>
@@ -433,16 +423,13 @@
 
   <div class="inactive" id="inactiveScreen"></div>
   <audio id="ringtoneAudio" loop playsinline></audio>
-
   <script src="config.js"></script>
 
   <script>
     let timerBaseSeconds = 0;
     let timerStartedAt = Date.now();
-
     let displayTimeBaseMinutes = 0;
     let displayTimeStartedAt = 0;
-
     let hasInitialisedTimers = false;
     let currentState = "incoming";
     let locallyOverriddenState = false;
@@ -457,11 +444,7 @@
 
     async function loadSettings() {
       try {
-        const response = await fetch(apiUrl("getCallSettings"), {
-          method: "GET",
-          redirect: "follow"
-        });
-
+        const response = await fetch(apiUrl("getCallSettings"), { method: "GET", redirect: "follow" });
         const settings = await response.json();
         latestSettings = settings;
         applySettings(settings);
@@ -471,16 +454,24 @@
     }
 
     function applySettings(settings) {
-      if (lockedBlackAfterDecline) return;
+      const sheetActive = settings["Active"] === true || String(settings["Active"]).toUpperCase() === "TRUE";
+      const sheetState = normaliseState(settings["Call State"] || "incoming");
 
-      const active =
-        settings["Active"] === true ||
-        String(settings["Active"]).toUpperCase() === "TRUE";
+      if (lockedBlackAfterDecline) {
+        if (sheetActive && sheetState === "incoming") {
+          lockedBlackAfterDecline = false;
+          locallyOverriddenState = false;
+          currentState = "incoming";
+          document.getElementById("inactiveScreen").classList.remove("visible");
+        } else {
+          return;
+        }
+      }
 
       const callScreen = document.getElementById("callScreen");
       const inactiveScreen = document.getElementById("inactiveScreen");
 
-      if (!active) {
+      if (!sheetActive) {
         callScreen.classList.remove("ready");
         inactiveScreen.classList.add("visible");
         stopRingtone();
@@ -491,19 +482,15 @@
 
       inactiveScreen.classList.remove("visible");
 
-      if (!locallyOverriddenState) {
-        currentState = normaliseState(settings["Call State"] || "incoming");
-      }
+      if (!locallyOverriddenState) currentState = sheetState;
 
       document.title = (settings["Caller Name"] || "Call") + " Call";
-
       setText("callerName", settings["Caller Name"] || "Caller");
       setText("signalText", settings["Signal"] || "5G");
       setText("incomingStatusText", settings["Incoming Status Text"] || "Calling");
 
       const statusText = settings["Call Status Text"] || "";
       const statusEl = document.getElementById("callStatusText");
-
       if (statusText) {
         statusEl.textContent = statusText;
         statusEl.classList.add("visible");
@@ -528,22 +515,17 @@
       setCssVar("--accept-colour", settings["Accept Colour"]);
       setCssVar("--hangup-colour", settings["Hangup Colour"]);
 
-      if (settings["Wallpaper Image URL"]) {
-        setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
-      } else {
-        setCssVar("--wallpaper", "none");
-      }
+      if (settings["Wallpaper Image URL"]) setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
+      else setCssVar("--wallpaper", "none");
 
       applyAvatar(settings);
       initialiseDisplayTimeIfNeeded(settings);
       applyState(currentState, settings);
-
       callScreen.classList.add("ready");
     }
 
     function applyAvatar(settings) {
       const avatar = document.getElementById("avatar");
-
       if (settings["Caller Image URL"]) {
         avatar.textContent = "";
         avatar.style.backgroundImage = `url("${settings["Caller Image URL"]}")`;
@@ -555,7 +537,6 @@
 
     function applyState(state, settings) {
       currentState = normaliseState(state);
-
       const incomingStatus = document.getElementById("incomingStatus");
       const activeControls = document.getElementById("activeControls");
       const incomingControls = document.getElementById("incomingControls");
@@ -570,7 +551,6 @@
         callTimer.classList.add("hidden");
         declinedText.classList.add("hidden");
         callStatusText.classList.remove("visible");
-
         hasInitialisedTimers = false;
         startRingtone(settings);
         return;
@@ -582,7 +562,6 @@
         activeControls.classList.remove("hidden");
         callTimer.classList.remove("hidden");
         declinedText.classList.add("hidden");
-
         stopRingtone();
         initialiseCallTimerIfNeeded(settings);
         return;
@@ -595,7 +574,6 @@
         callTimer.classList.add("hidden");
         declinedText.classList.remove("hidden");
         callStatusText.classList.remove("visible");
-
         stopRingtone();
         hasInitialisedTimers = false;
       }
@@ -604,11 +582,9 @@
     function acceptCall() {
       locallyOverriddenState = true;
       currentState = "active";
-
       timerBaseSeconds = parseTimerToSeconds(latestSettings["Call Timer"] || "00:00");
       timerStartedAt = Date.now();
       hasInitialisedTimers = true;
-
       applyState("active", latestSettings);
       updateLiveClocks();
     }
@@ -617,10 +593,8 @@
       locallyOverriddenState = true;
       currentState = "declined";
       applyState("declined", latestSettings);
-
       const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
       const safeTimeout = isNaN(timeoutSeconds) ? 3 : Math.max(0, timeoutSeconds);
-
       setTimeout(() => {
         lockedBlackAfterDecline = true;
         stopRingtone();
@@ -631,7 +605,6 @@
 
     function normaliseState(state) {
       state = String(state || "").toLowerCase().trim();
-
       if (state === "active") return "active";
       if (state === "declined") return "declined";
       return "incoming";
@@ -640,16 +613,9 @@
     function startRingtone(settings) {
       const url = settings["Ringtone Audio URL"] || "";
       const audio = document.getElementById("ringtoneAudio");
-
       if (!url) return;
-
-      if (audio.src !== url) {
-        audio.src = url;
-      }
-
-      audio.play().catch(error => {
-        console.log("Ringtone play blocked or failed:", error);
-      });
+      if (audio.src !== url) audio.src = url;
+      audio.play().catch(error => console.log("Ringtone play blocked or failed:", error));
     }
 
     function stopRingtone() {
@@ -660,7 +626,6 @@
 
     function initialiseCallTimerIfNeeded(settings) {
       if (hasInitialisedTimers) return;
-
       timerBaseSeconds = parseTimerToSeconds(settings["Call Timer"] || "00:00");
       timerStartedAt = Date.now();
       hasInitialisedTimers = true;
@@ -669,7 +634,6 @@
 
     function initialiseDisplayTimeIfNeeded(settings) {
       if (displayTimeStartedAt) return;
-
       displayTimeBaseMinutes = parseClockToMinutes(settings["Display Time"] || "10:47");
       displayTimeStartedAt = Date.now();
     }
@@ -679,7 +643,6 @@
         const elapsedSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
         setText("callTimer", formatTimer(timerBaseSeconds + elapsedSeconds));
       }
-
       if (displayTimeStartedAt) {
         const elapsedMinutes = Math.floor((Date.now() - displayTimeStartedAt) / 60000);
         setText("displayTime", formatClockMinutes(displayTimeBaseMinutes + elapsedMinutes));
@@ -687,11 +650,7 @@
     }
 
     function parseTimerToSeconds(text) {
-      const parts = String(text || "0")
-        .split(":")
-        .map(Number)
-        .filter(number => !isNaN(number));
-
+      const parts = String(text || "0").split(":").map(Number).filter(number => !isNaN(number));
       if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
       if (parts.length === 2) return parts[0] * 60 + parts[1];
       if (parts.length === 1) return parts[0];
@@ -700,19 +659,11 @@
 
     function formatTimer(totalSeconds) {
       totalSeconds = Math.max(0, totalSeconds);
-
       const hours = Math.floor(totalSeconds / 3600);
       const minutes = Math.floor((totalSeconds % 3600) / 60);
       const seconds = totalSeconds % 60;
-
-      if (hours > 0) {
-        return String(hours).padStart(2, "0") + ":" +
-          String(minutes).padStart(2, "0") + ":" +
-          String(seconds).padStart(2, "0");
-      }
-
-      return String(minutes).padStart(2, "0") + ":" +
-        String(seconds).padStart(2, "0");
+      if (hours > 0) return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+      return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
     }
 
     function parseClockToMinutes(text) {
@@ -729,28 +680,12 @@
       return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
     }
 
-    function setText(id, text) {
-      document.getElementById(id).textContent = text;
-    }
-
-    function setCssVar(name, value) {
-      if (value) document.documentElement.style.setProperty(name, value);
-    }
-
-    function clamp(value, min, max) {
-      if (isNaN(value)) return min;
-      return Math.max(min, Math.min(max, value));
-    }
-
+    function setText(id, text) { document.getElementById(id).textContent = text; }
+    function setCssVar(name, value) { if (value) document.documentElement.style.setProperty(name, value); }
+    function clamp(value, min, max) { if (isNaN(value)) return min; return Math.max(min, Math.min(max, value)); }
     function initials(name) {
       if (!name) return "?";
-
-      return String(name)
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map(part => part[0].toUpperCase())
-        .join("");
+      return String(name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0].toUpperCase()).join("");
     }
 
     loadSettings();
