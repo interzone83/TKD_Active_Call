@@ -4,17 +4,42 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html generic reskin v1
-    ------------------
-    Combined incoming call + active call + declined/black screen behaviour.
+    activecall.html - Integrated Generic Call Screen v5.3
+    ---------------------------------------------------
+    Single HTML file for all call states:
+      - incoming
+      - outgoing
+      - active
+      - declined
 
-    v4 changes:
-    - Decline goes black after sheet-defined Decline Timeout Seconds.
-    - While black after decline, page keeps polling the sheet.
-    - If sheet is set back to Active = TRUE and Call State = incoming, incoming call appears again.
-    - Calling... dots made slightly bigger/more visible.
-    - Top status bar made slightly smaller.
-    - Added clear comments for easy on-set edits.
+    GitHub-side only.
+    No Apps Script change required, assuming your existing API already returns
+    all Setting / Value rows from the Call Settings sheet.
+
+    Key behaviour:
+      Call State = incoming:
+        Incoming call screen with Decline / Accept buttons.
+
+      Call State = outgoing:
+        Outgoing call screen with "Calling..." and one End button.
+        Timer is hidden and NOT running.
+
+      Call State = active:
+        Active call screen with running timer.
+        Uses active controls: Speaker / End / Mute.
+
+      Call State = declined:
+        Shows call declined / ended state briefly, then black.
+
+    Remote reset:
+      After a local decline/end blackout, the page keeps polling.
+      It wakes again when sheet says:
+        Active = TRUE
+        Call State = incoming / outgoing / active
+
+    Fast polling:
+      Sheet settings are polled every 500ms.
+      Display time and call timer changes from the sheet are detected and updated.
   -->
 
   <meta
@@ -26,14 +51,7 @@
 
   <style>
     /* ============================================================
-       ACTIVE CALL GENERIC RESKIN v1
-       ------------------------------------------------------------
-       This is deliberately NOT iOS and NOT WhatsApp.
-       It keeps the same functionality but changes the visual language
-       to a generic Android/Samsung-adjacent phone UI.
-
-       Logic, sheet settings, timers, accept/decline behaviour and
-       ringtone handling are unchanged.
+       1. RESET / BASE
        ============================================================ */
 
     html,
@@ -68,12 +86,16 @@
       opacity: 0;
     }
 
-    .call-screen.ready { opacity: 1; }
-    .hidden { display: none !important; }
+    .call-screen.ready {
+      opacity: 1;
+    }
+
+    .hidden {
+      display: none !important;
+    }
 
     /* ============================================================
-       TOP STATUS BAR
-       ON-SET EDIT POINT: change font-size if status text is too big.
+       2. TOP STATUS BAR
        ============================================================ */
 
     .status-bar {
@@ -145,7 +167,6 @@
       background: currentColor;
     }
 
-    /* Generic app label to move it away from iOS full-screen call styling. */
     .status-bar::after {
       content: "Voice call";
       position: absolute;
@@ -160,6 +181,10 @@
       pointer-events: none;
     }
 
+    /* ============================================================
+       3. CALLER AREA
+       ============================================================ */
+
     .call-main {
       flex: 1;
       display: flex;
@@ -170,12 +195,7 @@
       text-align: center;
     }
 
-    /* ============================================================
-       INCOMING CALLING... TEXT
-       ON-SET EDIT POINT: change font-size to adjust Calling... size.
-       ============================================================ */
-
-    .incoming-status {
+    .call-state-text {
       font-size: 22px;
       color: var(--muted-text-colour, #aeb8c5);
       margin-bottom: 28px;
@@ -225,16 +245,6 @@
       letter-spacing: -0.02em;
     }
 
-    .optional-status {
-      font-size: 15px;
-      color: var(--muted-text-colour, #aeb8c5);
-      margin-bottom: 5px;
-      display: none;
-      font-weight: 600;
-    }
-
-    .optional-status.visible { display: block; }
-
     .call-timer {
       font-size: 18px;
       color: var(--muted-text-colour, #aeb8c5);
@@ -242,12 +252,16 @@
       letter-spacing: 0.04em;
     }
 
-    .declined-text {
+    .ended-text {
       font-size: 17px;
       color: var(--muted-text-colour, #aeb8c5);
       margin-top: 9px;
       font-weight: 700;
     }
+
+    /* ============================================================
+       4. FOOTER / BUTTONS
+       ============================================================ */
 
     .call-footer {
       padding: 16px 20px calc(28px + env(safe-area-inset-bottom));
@@ -272,11 +286,18 @@
       gap: 34px;
     }
 
+    .single-control-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      max-width: 460px;
+      margin: 0 auto;
+    }
+
     .control {
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
       gap: 8px;
       color: var(--text-colour, #f4f7fb);
       font-size: 12px;
@@ -303,14 +324,25 @@
       -webkit-tap-highlight-color: transparent;
     }
 
-    .incoming-circle {
+    .big-control {
       width: 78px;
       height: 62px;
       border-radius: 20px;
     }
 
-    .hangup-circle { background: var(--hangup-colour, #d83b36); }
-    .accept-circle { background: var(--accept-colour, #168d5a); }
+    .end-button {
+      width: 94px;
+      height: 62px;
+      border-radius: 20px;
+    }
+
+    .hangup-circle {
+      background: var(--hangup-colour, #D83B36);
+    }
+
+    .accept-circle {
+      background: var(--accept-colour, #168D5A);
+    }
 
     .control-icon {
       width: 28px;
@@ -336,8 +368,18 @@
       stroke: none;
     }
 
-    .handset-decline { transform: rotate(135deg); }
-    .handset-accept { transform: rotate(-45deg); }
+    .handset-decline,
+    .handset-end {
+      transform: rotate(135deg);
+    }
+
+    .handset-accept {
+      transform: rotate(-45deg);
+    }
+
+    /* ============================================================
+       5. BLACK / INACTIVE SCREEN
+       ============================================================ */
 
     .inactive {
       position: fixed;
@@ -347,75 +389,117 @@
       z-index: 50;
     }
 
-    .inactive.visible { display: block; }
+    .inactive.visible {
+      display: block;
+    }
   </style>
 </head>
 
 <body>
   <div class="call-screen" id="callScreen">
+    <!-- Status bar -->
     <div class="status-bar">
       <div id="displayTime">10:47</div>
+
       <div class="status-right">
-        <div class="signal-bars bars-4" id="signalBars"><span></span><span></span><span></span><span></span></div>
+        <div class="signal-bars bars-4" id="signalBars">
+          <span></span><span></span><span></span><span></span>
+        </div>
+
         <span id="signalText">5G</span>
         <span id="batteryPercent">43%</span>
-        <div class="battery"><div class="battery-fill" id="batteryFill"></div></div>
+
+        <div class="battery">
+          <div class="battery-fill" id="batteryFill"></div>
+        </div>
       </div>
     </div>
 
+    <!-- Caller area -->
     <main class="call-main">
-      <div class="incoming-status" id="incomingStatus">
-        <span id="incomingStatusText">Calling</span><span class="dots"><span>.</span><span>.</span><span>.</span></span>
+      <div class="call-state-text" id="callStateText">
+        <span id="stateLabel">Calling</span><span class="dots" id="stateDots"><span>.</span><span>.</span><span>.</span></span>
       </div>
+
       <div class="avatar" id="avatar">J</div>
       <div class="caller-name" id="callerName">Jess</div>
-      <div class="optional-status" id="callStatusText">Connected</div>
-      <div class="call-timer" id="callTimer">00:00</div>
-      <div class="declined-text hidden" id="declinedText">Call declined</div>
+      <div class="call-timer hidden" id="callTimer">00:00</div>
+      <div class="ended-text hidden" id="endedText">Call ended</div>
     </main>
 
-    <footer class="call-footer" id="activeControls">
+    <!-- Incoming controls -->
+    <footer class="call-footer hidden" id="incomingControls">
+      <div class="control-row incoming-row">
+        <div class="control">
+          <button class="control-circle big-control hangup-circle" type="button" onclick="declineCall()">
+            <svg class="handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>Decline</div>
+        </div>
+
+        <div class="control">
+          <button class="control-circle big-control accept-circle" type="button" onclick="acceptCall()">
+            <svg class="handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>Accept</div>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Outgoing controls -->
+    <footer class="call-footer hidden" id="outgoingControls">
+      <div class="single-control-row">
+        <div class="control">
+          <button class="control-circle end-button hangup-circle" type="button" onclick="endCall()">
+            <svg class="handset-icon handset-end" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>End</div>
+        </div>
+      </div>
+    </footer>
+
+    <!-- Active controls -->
+    <footer class="call-footer hidden" id="activeControls">
       <div class="control-row">
         <div class="control">
           <button class="control-circle" type="button">
             <svg class="control-icon speaker-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M4 9v6h4l5 4V5L8 9H4z"></path><path d="M16 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
+              <path d="M4 9v6h4l5 4V5L8 9H4z"></path>
+              <path d="M16 8.5a5 5 0 0 1 0 7"></path>
+              <path d="M18.5 6a8.5 8.5 0 0 1 0 12"></path>
             </svg>
           </button>
           <div>Speaker</div>
         </div>
+
         <div class="control">
-          <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
-            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true">
+          <button class="control-circle big-control hangup-circle" type="button" onclick="endCall()">
+            <svg class="handset-icon handset-end" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
             </svg>
           </button>
           <div>&nbsp;</div>
         </div>
+
         <div class="control">
           <button class="control-circle" type="button">
             <svg class="control-icon mute-icon" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path><path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path><path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path><path d="M19 10v1a7 7 0 0 1-.9 3.4"></path><path d="M12 18v3"></path><path d="M8 21h8"></path><path d="M4 4l16 16"></path>
+              <path d="M12 3a3 3 0 0 0-3 3v5a3 3 0 0 0 5.1 2.1"></path>
+              <path d="M15 9.5V6a3 3 0 0 0-4.7-2.5"></path>
+              <path d="M5 10v1a7 7 0 0 0 10.4 6.1"></path>
+              <path d="M19 10v1a7 7 0 0 1-.9 3.4"></path>
+              <path d="M12 18v3"></path>
+              <path d="M8 21h8"></path>
+              <path d="M4 4l16 16"></path>
             </svg>
           </button>
           <div>Mute</div>
-        </div>
-      </div>
-    </footer>
-
-    <footer class="call-footer hidden" id="incomingControls">
-      <div class="control-row incoming-row">
-        <div class="control">
-          <button class="control-circle incoming-circle hangup-circle" type="button" onclick="declineCall()">
-            <svg class="control-icon handset-icon handset-decline" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg>
-          </button>
-          <div>Decline</div>
-        </div>
-        <div class="control">
-          <button class="control-circle incoming-circle accept-circle" type="button" onclick="acceptCall()">
-            <svg class="control-icon handset-icon handset-accept" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path></svg>
-          </button>
-          <div>Accept</div>
         </div>
       </div>
     </footer>
@@ -423,49 +507,139 @@
 
   <div class="inactive" id="inactiveScreen"></div>
   <audio id="ringtoneAudio" loop playsinline></audio>
+
   <script src="config.js"></script>
 
   <script>
-    let timerBaseSeconds = 0;
-    let timerStartedAt = Date.now();
+    /* ============================================================
+       1. LOCAL STATE
+       ============================================================ */
+
+    let latestSettings = {};
+    let currentState = "incoming";
+    let previousSheetState = "";
+    let previousSheetActive = null;
+    let locallyOverriddenState = false;
+
+    let lockedBlackAfterEnd = false;
+    let sawInactiveAfterBlack = false;
+
+    // Prevents polling from redrawing the call screen during the brief "Call ended" / "Call declined" hold.
+    let localEndedHold = false;
+
+    let callTimerInitialised = false;
+    let callTimerBaseSeconds = 0;
+    let callTimerStartedAt = Date.now();
+    let lastSheetCallTimer = "";
+
     let displayTimeBaseMinutes = 0;
     let displayTimeStartedAt = 0;
-    let hasInitialisedTimers = false;
-    let currentState = "incoming";
-    let locallyOverriddenState = false;
-    let latestSettings = {};
-    let lockedBlackAfterDecline = false;
+    let lastSheetDisplayTime = "";
 
-    function apiUrl(action) {
+    let currentRingtoneUrl = "";
+    let ringtonePlaying = false;
+
+    /* ============================================================
+       2. API
+       ============================================================ */
+
+    function apiUrl() {
       const url = new URL(API_URL);
-      url.searchParams.set("action", action);
+      url.searchParams.set("action", "getCallSettings");
       return url.toString();
     }
 
     async function loadSettings() {
       try {
-        const response = await fetch(apiUrl("getCallSettings"), { method: "GET", redirect: "follow" });
+        const response = await fetch(apiUrl(), {
+          method: "GET",
+          redirect: "follow"
+        });
+
         const settings = await response.json();
         latestSettings = settings;
         applySettings(settings);
+
       } catch (error) {
         console.log("Call settings load error:", error);
       }
     }
 
+    /* ============================================================
+       3. APPLY SETTINGS
+       ============================================================ */
+
     function applySettings(settings) {
-      const sheetActive = settings["Active"] === true || String(settings["Active"]).toUpperCase() === "TRUE";
+      const sheetActive =
+        settings["Active"] === true ||
+        String(settings["Active"]).toUpperCase() === "TRUE";
+
       const sheetState = normaliseState(settings["Call State"] || "incoming");
 
-      if (lockedBlackAfterDecline) {
-        if (sheetActive && sheetState === "incoming") {
-          lockedBlackAfterDecline = false;
+      /*
+        ACTIVE TOGGLE REFRESH
+        ------------------------------------------------------------
+        Treat Active FALSE -> TRUE like a clean refresh of the call page.
+
+        This helps audio/ringtone behave properly instead of resuming
+        halfway through a previous sound.
+      */
+      const activeJustTurnedOn = previousSheetActive === false && sheetActive === true;
+
+      if (activeJustTurnedOn) {
+        localEndedHold = false;
+        lockedBlackAfterEnd = false;
+        sawInactiveAfterBlack = false;
+        locallyOverriddenState = false;
+        currentState = sheetState;
+        resetCallTimer();
+        resetRingtoneToStart();
+      }
+
+      /*
+        BLACK SCREEN RESET
+        ------------------------------------------------------------
+        After decline/end, the screen stays black.
+
+        To wake it remotely:
+          1. Set Active = FALSE
+          2. Set Call State to incoming / outgoing / active
+          3. Set Active = TRUE
+
+        This avoids the screen instantly waking again just because the
+        sheet was still Active = TRUE after pressing End.
+      */
+      if (lockedBlackAfterEnd) {
+        if (!sheetActive) {
+          sawInactiveAfterBlack = true;
+          previousSheetActive = false;
+          return;
+        }
+
+        if (sawInactiveAfterBlack && sheetActive && ["incoming", "outgoing", "active"].includes(sheetState)) {
+          lockedBlackAfterEnd = false;
+          sawInactiveAfterBlack = false;
+          localEndedHold = false;
           locallyOverriddenState = false;
-          currentState = "incoming";
+          currentState = sheetState;
+          resetCallTimer();
+
           document.getElementById("inactiveScreen").classList.remove("visible");
+          document.getElementById("callScreen").classList.add("ready");
         } else {
           return;
         }
+      }
+
+      /*
+        LOCAL ENDED HOLD
+        ------------------------------------------------------------
+        When End/Decline is pressed, we briefly show "Call ended" or
+        "Call declined" before going black. During that short hold,
+        ignore sheet polling so it cannot redraw the active/outgoing UI.
+      */
+      if (localEndedHold) {
+        return;
       }
 
       const callScreen = document.getElementById("callScreen");
@@ -474,29 +648,36 @@
       if (!sheetActive) {
         callScreen.classList.remove("ready");
         inactiveScreen.classList.add("visible");
-        stopRingtone();
-        hasInitialisedTimers = false;
+        resetRingtoneToStart();
         locallyOverriddenState = false;
+        localEndedHold = false;
+        resetCallTimer();
+        previousSheetState = "";
+        previousSheetActive = false;
         return;
       }
 
       inactiveScreen.classList.remove("visible");
 
-      if (!locallyOverriddenState) currentState = sheetState;
+      if (!locallyOverriddenState) {
+        currentState = sheetState;
+      }
 
       document.title = (settings["Caller Name"] || "Call") + " Call";
+
+      applyVisualSettings(settings);
+      applyAvatar(settings);
+      updateDisplayTimeFromSheet(settings);
+      applyState(currentState, settings);
+
+      previousSheetState = sheetState;
+      previousSheetActive = sheetActive;
+      callScreen.classList.add("ready");
+    }
+
+    function applyVisualSettings(settings) {
       setText("callerName", settings["Caller Name"] || "Caller");
       setText("signalText", settings["Signal"] || "5G");
-      setText("incomingStatusText", settings["Incoming Status Text"] || "Calling");
-
-      const statusText = settings["Call Status Text"] || "";
-      const statusEl = document.getElementById("callStatusText");
-      if (statusText) {
-        statusEl.textContent = statusText;
-        statusEl.classList.add("visible");
-      } else {
-        statusEl.classList.remove("visible");
-      }
 
       const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
       setText("batteryPercent", battery + "%");
@@ -515,17 +696,16 @@
       setCssVar("--accept-colour", settings["Accept Colour"]);
       setCssVar("--hangup-colour", settings["Hangup Colour"]);
 
-      if (settings["Wallpaper Image URL"]) setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
-      else setCssVar("--wallpaper", "none");
-
-      applyAvatar(settings);
-      initialiseDisplayTimeIfNeeded(settings);
-      applyState(currentState, settings);
-      callScreen.classList.add("ready");
+      if (settings["Wallpaper Image URL"]) {
+        setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
+      } else {
+        setCssVar("--wallpaper", "none");
+      }
     }
 
     function applyAvatar(settings) {
       const avatar = document.getElementById("avatar");
+
       if (settings["Caller Image URL"]) {
         avatar.textContent = "";
         avatar.style.backgroundImage = `url("${settings["Caller Image URL"]}")`;
@@ -535,68 +715,101 @@
       }
     }
 
+    /* ============================================================
+       4. STATE HANDLING
+       ============================================================ */
+
     function applyState(state, settings) {
       currentState = normaliseState(state);
-      const incomingStatus = document.getElementById("incomingStatus");
-      const activeControls = document.getElementById("activeControls");
-      const incomingControls = document.getElementById("incomingControls");
-      const callTimer = document.getElementById("callTimer");
-      const declinedText = document.getElementById("declinedText");
-      const callStatusText = document.getElementById("callStatusText");
+
+      hideAllControls();
+      document.getElementById("endedText").classList.add("hidden");
+      document.getElementById("callStateText").classList.remove("hidden");
 
       if (currentState === "incoming") {
-        incomingStatus.classList.remove("hidden");
-        incomingControls.classList.remove("hidden");
-        activeControls.classList.add("hidden");
-        callTimer.classList.add("hidden");
-        declinedText.classList.add("hidden");
-        callStatusText.classList.remove("visible");
-        hasInitialisedTimers = false;
+        setText("stateLabel", settings["Incoming Status Text"] || "Calling");
+        document.getElementById("stateDots").classList.remove("hidden");
+        document.getElementById("callTimer").classList.add("hidden");
+        document.getElementById("incomingControls").classList.remove("hidden");
+
+        resetCallTimer();
         startRingtone(settings);
         return;
       }
 
-      if (currentState === "active") {
-        incomingStatus.classList.add("hidden");
-        incomingControls.classList.add("hidden");
-        activeControls.classList.remove("hidden");
-        callTimer.classList.remove("hidden");
-        declinedText.classList.add("hidden");
+      if (currentState === "outgoing") {
+        setText("stateLabel", settings["Outgoing Status Text"] || settings["Incoming Status Text"] || "Calling");
+        document.getElementById("stateDots").classList.remove("hidden");
+        document.getElementById("callTimer").classList.add("hidden");
+        document.getElementById("outgoingControls").classList.remove("hidden");
+
+        resetCallTimer();
         stopRingtone();
-        initialiseCallTimerIfNeeded(settings);
+        return;
+      }
+
+      if (currentState === "active") {
+        setText("stateLabel", settings["Call Status Text"] || "Connected");
+        document.getElementById("stateDots").classList.add("hidden");
+        document.getElementById("callTimer").classList.remove("hidden");
+        document.getElementById("activeControls").classList.remove("hidden");
+
+        stopRingtone();
+        updateCallTimerFromSheet(settings);
         return;
       }
 
       if (currentState === "declined") {
-        incomingStatus.classList.add("hidden");
-        incomingControls.classList.add("hidden");
-        activeControls.classList.add("hidden");
-        callTimer.classList.add("hidden");
-        declinedText.classList.remove("hidden");
-        callStatusText.classList.remove("visible");
-        stopRingtone();
-        hasInitialisedTimers = false;
+        showEndedState("Call declined");
       }
+    }
+
+    function hideAllControls() {
+      document.getElementById("incomingControls").classList.add("hidden");
+      document.getElementById("outgoingControls").classList.add("hidden");
+      document.getElementById("activeControls").classList.add("hidden");
     }
 
     function acceptCall() {
       locallyOverriddenState = true;
       currentState = "active";
-      timerBaseSeconds = parseTimerToSeconds(latestSettings["Call Timer"] || "00:00");
-      timerStartedAt = Date.now();
-      hasInitialisedTimers = true;
+      resetCallTimer();
       applyState("active", latestSettings);
-      updateLiveClocks();
     }
 
     function declineCall() {
       locallyOverriddenState = true;
-      currentState = "declined";
-      applyState("declined", latestSettings);
+      localEndedHold = true;
+      showEndedState("Call declined");
+      goBlackAfterTimeout();
+    }
+
+    function endCall() {
+      locallyOverriddenState = true;
+      localEndedHold = true;
+      showEndedState("Call ended");
+      goBlackAfterTimeout();
+    }
+
+    function showEndedState(text) {
+      hideAllControls();
+      stopRingtone();
+      resetCallTimer();
+
+      document.getElementById("callStateText").classList.add("hidden");
+      document.getElementById("callTimer").classList.add("hidden");
+      document.getElementById("endedText").textContent = text;
+      document.getElementById("endedText").classList.remove("hidden");
+    }
+
+    function goBlackAfterTimeout() {
       const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
       const safeTimeout = isNaN(timeoutSeconds) ? 3 : Math.max(0, timeoutSeconds);
+
       setTimeout(() => {
-        lockedBlackAfterDecline = true;
+        lockedBlackAfterEnd = true;
+        sawInactiveAfterBlack = false;
+        localEndedHold = false;
         stopRingtone();
         document.getElementById("callScreen").classList.remove("ready");
         document.getElementById("inactiveScreen").classList.add("visible");
@@ -605,65 +818,158 @@
 
     function normaliseState(state) {
       state = String(state || "").toLowerCase().trim();
+
+      if (state === "outgoing") return "outgoing";
       if (state === "active") return "active";
       if (state === "declined") return "declined";
+
       return "incoming";
     }
 
-    function startRingtone(settings) {
-      const url = settings["Ringtone Audio URL"] || "";
-      const audio = document.getElementById("ringtoneAudio");
-      if (!url) return;
-      if (audio.src !== url) audio.src = url;
-      audio.play().catch(error => console.log("Ringtone play blocked or failed:", error));
-    }
+    /* ============================================================
+       5. TIMER / SHEET REFRESH LOGIC
+       ------------------------------------------------------------
+       Display Time and Call Timer are checked from the sheet often.
+       If you change either in the sheet, the page updates quickly.
+       ============================================================ */
 
-    function stopRingtone() {
-      const audio = document.getElementById("ringtoneAudio");
-      audio.pause();
-      audio.currentTime = 0;
-    }
+    function updateCallTimerFromSheet(settings) {
+      const sheetTimer = String(settings["Call Timer"] || "00:00").trim();
 
-    function initialiseCallTimerIfNeeded(settings) {
-      if (hasInitialisedTimers) return;
-      timerBaseSeconds = parseTimerToSeconds(settings["Call Timer"] || "00:00");
-      timerStartedAt = Date.now();
-      hasInitialisedTimers = true;
+      /*
+        CALL TIMER FIX
+        ------------------------------------------------------------
+        Reset only when entering active or when the sheet Call Timer
+        value changes. Do not reset on every poll.
+      */
+      const justEnteredActive = previousSheetState !== "active" && currentState === "active";
+
+      if (!callTimerInitialised || sheetTimer !== lastSheetCallTimer || justEnteredActive) {
+        callTimerBaseSeconds = parseTimerToSeconds(sheetTimer);
+        callTimerStartedAt = Date.now();
+        callTimerInitialised = true;
+        lastSheetCallTimer = sheetTimer;
+      }
+
       updateLiveClocks();
     }
 
-    function initialiseDisplayTimeIfNeeded(settings) {
-      if (displayTimeStartedAt) return;
-      displayTimeBaseMinutes = parseClockToMinutes(settings["Display Time"] || "10:47");
-      displayTimeStartedAt = Date.now();
+    function resetCallTimer() {
+      callTimerInitialised = false;
+      callTimerBaseSeconds = 0;
+      callTimerStartedAt = Date.now();
+      lastSheetCallTimer = "";
+      setText("callTimer", "00:00");
+    }
+
+    function updateDisplayTimeFromSheet(settings) {
+      const sheetDisplayTime = String(settings["Display Time"] || "10:47").trim();
+
+      if (!displayTimeStartedAt || sheetDisplayTime !== lastSheetDisplayTime) {
+        displayTimeBaseMinutes = parseClockToMinutes(sheetDisplayTime);
+        displayTimeStartedAt = Date.now();
+        lastSheetDisplayTime = sheetDisplayTime;
+      }
+
+      updateLiveClocks();
     }
 
     function updateLiveClocks() {
-      if (hasInitialisedTimers && currentState === "active") {
-        const elapsedSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
-        setText("callTimer", formatTimer(timerBaseSeconds + elapsedSeconds));
+      if (callTimerInitialised && currentState === "active") {
+        const elapsedSeconds = Math.floor((Date.now() - callTimerStartedAt) / 1000);
+        setText("callTimer", formatTimer(callTimerBaseSeconds + elapsedSeconds));
       }
+
       if (displayTimeStartedAt) {
         const elapsedMinutes = Math.floor((Date.now() - displayTimeStartedAt) / 60000);
         setText("displayTime", formatClockMinutes(displayTimeBaseMinutes + elapsedMinutes));
       }
     }
 
+    /* ============================================================
+       6. RINGTONE
+       ============================================================ */
+
+    function startRingtone(settings) {
+      const url = settings["Ringtone Audio URL"] || "";
+      const audio = document.getElementById("ringtoneAudio");
+
+      if (!url) return;
+
+      if (currentRingtoneUrl !== url) {
+        currentRingtoneUrl = url;
+        audio.src = url;
+        audio.currentTime = 0;
+        ringtonePlaying = false;
+      }
+
+      if (ringtonePlaying) return;
+
+      audio.currentTime = 0;
+      ringtonePlaying = true;
+
+      audio.play().catch(error => {
+        ringtonePlaying = false;
+        console.log("Ringtone play blocked or failed:", error);
+      });
+    }
+
+    function stopRingtone() {
+      const audio = document.getElementById("ringtoneAudio");
+      audio.pause();
+      audio.currentTime = 0;
+      ringtonePlaying = false;
+    }
+
+    function resetRingtoneToStart() {
+      const audio = document.getElementById("ringtoneAudio");
+      audio.pause();
+      audio.currentTime = 0;
+      ringtonePlaying = false;
+
+      try {
+        audio.load();
+      } catch (error) {
+        console.log("Audio reload skipped:", error);
+      }
+    }
+
+    /* ============================================================
+       7. FORMATTERS / HELPERS
+       ============================================================ */
+
     function parseTimerToSeconds(text) {
-      const parts = String(text || "0").split(":").map(Number).filter(number => !isNaN(number));
+      const parts = String(text || "0")
+        .split(":")
+        .map(Number)
+        .filter(number => !isNaN(number));
+
       if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
       if (parts.length === 2) return parts[0] * 60 + parts[1];
       if (parts.length === 1) return parts[0];
+
       return 0;
     }
 
     function formatTimer(totalSeconds) {
       totalSeconds = Math.max(0, totalSeconds);
+
       const hours = Math.floor(totalSeconds / 3600);
       const minutes = Math.floor((totalSeconds % 3600) / 60);
       const seconds = totalSeconds % 60;
-      if (hours > 0) return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
-      return String(minutes).padStart(2, "0") + ":" + String(seconds).padStart(2, "0");
+
+      if (hours > 0) {
+        return (
+          String(hours).padStart(2, "0") + ":" +
+          String(minutes).padStart(2, "0") + ":" +
+          String(seconds).padStart(2, "0")
+        );
+      }
+
+      return (
+        String(minutes).padStart(2, "0") + ":" +
+        String(seconds).padStart(2, "0")
+      );
     }
 
     function parseClockToMinutes(text) {
@@ -680,16 +986,41 @@
       return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
     }
 
-    function setText(id, text) { document.getElementById(id).textContent = text; }
-    function setCssVar(name, value) { if (value) document.documentElement.style.setProperty(name, value); }
-    function clamp(value, min, max) { if (isNaN(value)) return min; return Math.max(min, Math.min(max, value)); }
-    function initials(name) {
-      if (!name) return "?";
-      return String(name).split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0].toUpperCase()).join("");
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
     }
 
+    function setCssVar(name, value) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+
+    function clamp(value, min, max) {
+      if (isNaN(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function initials(name) {
+      if (!name) return "?";
+
+      return String(name)
+        .split(/\\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("");
+    }
+
+    /* ============================================================
+       8. STARTUP
+       ============================================================ */
+
     loadSettings();
-    setInterval(loadSettings, 1000);
+
+    // Fast polling like the home screen. Increase to 500 or 1000ms if you need
+    // to reduce Google Apps Script traffic.
+    setInterval(loadSettings, 350);
+
+    // Smooth local clocks.
     setInterval(updateLiveClocks, 250);
   </script>
 </body>
