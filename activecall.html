@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html - Integrated Generic Call Screen v5.1
+    activecall.html - Integrated Generic Call Screen v5.2
     ---------------------------------------------------
     Single HTML file for all call states:
       - incoming
@@ -523,6 +523,9 @@
     let lockedBlackAfterEnd = false;
     let sawInactiveAfterBlack = false;
 
+    // Prevents polling from redrawing the call screen during the brief "Call ended" / "Call declined" hold.
+    let localEndedHold = false;
+
     let callTimerInitialised = false;
     let callTimerBaseSeconds = 0;
     let callTimerStartedAt = Date.now();
@@ -591,6 +594,7 @@
         if (sawInactiveAfterBlack && sheetActive && ["incoming", "outgoing", "active"].includes(sheetState)) {
           lockedBlackAfterEnd = false;
           sawInactiveAfterBlack = false;
+          localEndedHold = false;
           locallyOverriddenState = false;
           currentState = sheetState;
           resetCallTimer();
@@ -602,6 +606,17 @@
         }
       }
 
+      /*
+        LOCAL ENDED HOLD
+        ------------------------------------------------------------
+        When End/Decline is pressed, we briefly show "Call ended" or
+        "Call declined" before going black. During that short hold,
+        ignore sheet polling so it cannot redraw the active/outgoing UI.
+      */
+      if (localEndedHold) {
+        return;
+      }
+
       const callScreen = document.getElementById("callScreen");
       const inactiveScreen = document.getElementById("inactiveScreen");
 
@@ -610,6 +625,7 @@
         inactiveScreen.classList.add("visible");
         stopRingtone();
         locallyOverriddenState = false;
+        localEndedHold = false;
         resetCallTimer();
         previousSheetState = "";
         return;
@@ -736,12 +752,14 @@
 
     function declineCall() {
       locallyOverriddenState = true;
+      localEndedHold = true;
       showEndedState("Call declined");
       goBlackAfterTimeout();
     }
 
     function endCall() {
       locallyOverriddenState = true;
+      localEndedHold = true;
       showEndedState("Call ended");
       goBlackAfterTimeout();
     }
@@ -764,6 +782,7 @@
       setTimeout(() => {
         lockedBlackAfterEnd = true;
         sawInactiveAfterBlack = false;
+        localEndedHold = false;
         stopRingtone();
         document.getElementById("callScreen").classList.remove("ready");
         document.getElementById("inactiveScreen").classList.add("visible");
