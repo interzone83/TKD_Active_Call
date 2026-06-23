@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html - Integrated Generic Call Screen v5
+    activecall.html - Integrated Generic Call Screen v5.1
     ---------------------------------------------------
     Single HTML file for all call states:
       - incoming
@@ -521,6 +521,7 @@
     let locallyOverriddenState = false;
 
     let lockedBlackAfterEnd = false;
+    let sawInactiveAfterBlack = false;
 
     let callTimerInitialised = false;
     let callTimerBaseSeconds = 0;
@@ -571,18 +572,29 @@
       /*
         BLACK SCREEN RESET
         ------------------------------------------------------------
-        After decline/end, screen goes black but continues polling.
+        After decline/end, the screen stays black.
 
-        It wakes remotely when:
-          Active = TRUE
-          Call State = incoming / outgoing / active
+        To wake it remotely:
+          1. Set Active = FALSE
+          2. Set Call State to incoming / outgoing / active
+          3. Set Active = TRUE
+
+        This avoids the screen instantly waking again just because the
+        sheet was still Active = TRUE after pressing End.
       */
       if (lockedBlackAfterEnd) {
-        if (sheetActive && ["incoming", "outgoing", "active"].includes(sheetState)) {
+        if (!sheetActive) {
+          sawInactiveAfterBlack = true;
+          return;
+        }
+
+        if (sawInactiveAfterBlack && sheetActive && ["incoming", "outgoing", "active"].includes(sheetState)) {
           lockedBlackAfterEnd = false;
+          sawInactiveAfterBlack = false;
           locallyOverriddenState = false;
           currentState = sheetState;
           resetCallTimer();
+
           document.getElementById("inactiveScreen").classList.remove("visible");
           document.getElementById("callScreen").classList.add("ready");
         } else {
@@ -751,6 +763,7 @@
 
       setTimeout(() => {
         lockedBlackAfterEnd = true;
+        sawInactiveAfterBlack = false;
         stopRingtone();
         document.getElementById("callScreen").classList.remove("ready");
         document.getElementById("inactiveScreen").classList.add("visible");
@@ -883,7 +896,7 @@
     }
 
     function parseClockToMinutes(text) {
-      const match = String(text || "").match(/^(\\d{1,2}):(\\d{2})$/);
+      const match = String(text || "").match(/^(\d{1,2}):(\d{2})$/);
       if (!match) return 0;
       return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
     }
@@ -926,9 +939,9 @@
 
     loadSettings();
 
-    // Fast polling like the home screen. Increase to 1000ms if you need
+    // Fast polling like the home screen. Increase to 500 or 1000ms if you need
     // to reduce Google Apps Script traffic.
-    setInterval(loadSettings, 500);
+    setInterval(loadSettings, 350);
 
     // Smooth local clocks.
     setInterval(updateLiveClocks, 250);
