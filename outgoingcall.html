@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+
+  <!--
+    outgoingcall.html
+    -----------------
+    Extra call prop screen for an OUTGOING call.
+
+    Quick production version:
+    - Add this file to GitHub alongside activecall.html and config.js.
+    - No Apps Script changes.
+    - No backend changes.
+    - Uses the same Google Sheet settings as activecall.html.
+    - Manually set Call State = outgoing in the sheet when using this page.
+
+    Behaviour:
+    - Shows same generic call UI style.
+    - Shows caller/avatar/status/timer.
+    - Only one centred bottom button: End.
+    - Pressing End shows "Call ended", waits Decline Timeout Seconds, then goes black.
+    - Can be reset remotely by setting Active = TRUE and Call State = outgoing.
+  -->
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  >
+
+  <title>Outgoing Call</title>
+
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #05070a;
+      font-family: Arial, Roboto, Helvetica, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    .call-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        var(--wallpaper, none),
+        radial-gradient(circle at 50% 6%, rgba(58, 92, 130, 0.42), transparent 34%),
+        linear-gradient(
+          180deg,
+          var(--header-colour, #101923) 0%,
+          var(--middle-colour, #111922) 48%,
+          var(--footer-colour, #080d12) 100%
+        );
+      background-size: cover;
+      background-position: center;
+      color: var(--text-colour, #f4f7fb);
+      opacity: 0;
+    }
+
+    .call-screen.ready { opacity: 1; }
+    .hidden { display: none !important; }
+
+    .status-bar {
+      padding: calc(8px + env(safe-area-inset-top)) 18px 7px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1px;
+      color: rgba(244, 247, 251, 0.92);
+    }
+
+    .status-right {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .signal-bars {
+      display: flex;
+      align-items: end;
+      gap: 2px;
+      height: 11px;
+    }
+
+    .signal-bars span {
+      width: 3px;
+      background: currentColor;
+      border-radius: 2px;
+      opacity: 0.28;
+    }
+
+    .signal-bars span:nth-child(1) { height: 3px; }
+    .signal-bars span:nth-child(2) { height: 6px; }
+    .signal-bars span:nth-child(3) { height: 8px; }
+    .signal-bars span:nth-child(4) { height: 11px; }
+
+    .signal-bars.bars-1 span:nth-child(-n+1),
+    .signal-bars.bars-2 span:nth-child(-n+2),
+    .signal-bars.bars-3 span:nth-child(-n+3),
+    .signal-bars.bars-4 span:nth-child(-n+4) {
+      opacity: 1;
+    }
+
+    .battery {
+      width: 24px;
+      height: 11px;
+      border: 1.6px solid currentColor;
+      border-radius: 3px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .battery::after {
+      content: "";
+      position: absolute;
+      right: -4px;
+      top: 3px;
+      width: 3px;
+      height: 5px;
+      background: currentColor;
+      border-radius: 0 2px 2px 0;
+    }
+
+    .battery-fill {
+      height: 100%;
+      width: 43%;
+      background: currentColor;
+    }
+
+    .status-bar::after {
+      content: "Voice call";
+      position: absolute;
+      top: calc(34px + env(safe-area-inset-top));
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(244, 247, 251, 0.46);
+      pointer-events: none;
+    }
+
+    .call-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 42px 18px 92px;
+      text-align: center;
+    }
+
+    .outgoing-status {
+      font-size: 22px;
+      color: var(--muted-text-colour, #aeb8c5);
+      margin-bottom: 28px;
+      height: 30px;
+      letter-spacing: 0.02em;
+      font-weight: 600;
+    }
+
+    .dots span {
+      opacity: 0.25;
+      animation: pulseDot 1.2s infinite;
+      font-weight: 800;
+    }
+
+    .dots span:nth-child(2) { animation-delay: 0.18s; }
+    .dots span:nth-child(3) { animation-delay: 0.36s; }
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 0.25; }
+      45% { opacity: 1; }
+    }
+
+    .avatar {
+      width: 128px;
+      height: 128px;
+      border-radius: 28px;
+      background:
+        linear-gradient(145deg, rgba(255,255,255,0.12), rgba(255,255,255,0.02)),
+        var(--avatar-colour, #2d3a48);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 46px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      box-shadow:
+        0 18px 48px rgba(0,0,0,0.34),
+        inset 0 0 0 1px rgba(255,255,255,0.10);
+    }
+
+    .caller-name {
+      font-size: 31px;
+      font-weight: 800;
+      margin-bottom: 9px;
+      letter-spacing: -0.02em;
+    }
+
+    .call-timer {
+      font-size: 18px;
+      color: var(--muted-text-colour, #aeb8c5);
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .ended-text {
+      font-size: 17px;
+      color: var(--muted-text-colour, #aeb8c5);
+      margin-top: 9px;
+      font-weight: 700;
+    }
+
+    .call-footer {
+      padding: 16px 20px calc(28px + env(safe-area-inset-bottom));
+      background: rgba(5, 9, 13, 0.54);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .single-control-row {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      max-width: 460px;
+      margin: 0 auto;
+    }
+
+    .control {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-colour, #f4f7fb);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .end-button {
+      width: 94px;
+      height: 62px;
+      border-radius: 20px;
+      background: var(--hangup-colour, #D83B36);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      box-shadow:
+        0 8px 22px rgba(0,0,0,0.24),
+        inset 0 0 0 1px rgba(255,255,255,0.08);
+      border: none;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .handset-icon {
+      width: 32px;
+      height: 32px;
+      fill: currentColor;
+      stroke: none;
+      transform: rotate(135deg);
+    }
+
+    .inactive {
+      position: fixed;
+      inset: 0;
+      display: none;
+      background: #000;
+      z-index: 50;
+    }
+
+    .inactive.visible { display: block; }
+  </style>
+</head>
+
+<body>
+  <div class="call-screen" id="callScreen">
+    <div class="status-bar">
+      <div id="displayTime">10:47</div>
+
+      <div class="status-right">
+        <div class="signal-bars bars-4" id="signalBars">
+          <span></span><span></span><span></span><span></span>
+        </div>
+
+        <span id="signalText">5G</span>
+        <span id="batteryPercent">43%</span>
+
+        <div class="battery">
+          <div class="battery-fill" id="batteryFill"></div>
+        </div>
+      </div>
+    </div>
+
+    <main class="call-main">
+      <div class="outgoing-status" id="outgoingStatus">
+        <span id="outgoingStatusText">Calling</span><span class="dots"><span>.</span><span>.</span><span>.</span></span>
+      </div>
+
+      <div class="avatar" id="avatar">J</div>
+      <div class="caller-name" id="callerName">Jess</div>
+      <div class="call-timer" id="callTimer">00:00</div>
+      <div class="ended-text hidden" id="endedText">Call ended</div>
+    </main>
+
+    <footer class="call-footer" id="outgoingControls">
+      <div class="single-control-row">
+        <div class="control">
+          <button class="end-button" type="button" onclick="endCall()">
+            <svg class="handset-icon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6.6 10.8c1.7 3.3 3.3 4.9 6.6 6.6l2.2-2.2c.3-.3.8-.4 1.2-.3 1.3.4 2.6.6 4 .6.7 0 1.2.5 1.2 1.2V21c0 .7-.5 1.2-1.2 1.2C10.2 22.2 1.8 13.8 1.8 3.4 1.8 2.7 2.3 2.2 3 2.2h4.3c.7 0 1.2.5 1.2 1.2 0 1.4.2 2.7.6 4 .1.4 0 .9-.3 1.2l-2.2 2.2z"></path>
+            </svg>
+          </button>
+          <div>End</div>
+        </div>
+      </div>
+    </footer>
+  </div>
+
+  <div class="inactive" id="inactiveScreen"></div>
+
+  <script src="config.js"></script>
+
+  <script>
+    let timerBaseSeconds = 0;
+    let timerStartedAt = Date.now();
+    let displayTimeBaseMinutes = 0;
+    let displayTimeStartedAt = 0;
+    let latestSettings = {};
+    let lockedBlackAfterEnd = false;
+    let timerInitialised = false;
+
+    function apiUrl() {
+      const url = new URL(API_URL);
+      url.searchParams.set("action", "getCallSettings");
+      return url.toString();
+    }
+
+    async function loadSettings() {
+      try {
+        const response = await fetch(apiUrl(), {
+          method: "GET",
+          redirect: "follow"
+        });
+
+        const settings = await response.json();
+        latestSettings = settings;
+        applySettings(settings);
+      } catch (error) {
+        console.log("Outgoing call settings load error:", error);
+      }
+    }
+
+    function applySettings(settings) {
+      const sheetActive =
+        settings["Active"] === true ||
+        String(settings["Active"]).toUpperCase() === "TRUE";
+
+      const sheetState = String(settings["Call State"] || "outgoing").toLowerCase().trim();
+
+      if (lockedBlackAfterEnd) {
+        if (sheetActive && sheetState === "outgoing") {
+          lockedBlackAfterEnd = false;
+          timerInitialised = false;
+
+          document.getElementById("inactiveScreen").classList.remove("visible");
+          document.getElementById("callScreen").classList.add("ready");
+        } else {
+          return;
+        }
+      }
+
+      const callScreen = document.getElementById("callScreen");
+      const inactiveScreen = document.getElementById("inactiveScreen");
+
+      if (!sheetActive) {
+        callScreen.classList.remove("ready");
+        inactiveScreen.classList.add("visible");
+        timerInitialised = false;
+        return;
+      }
+
+      inactiveScreen.classList.remove("visible");
+
+      document.title = (settings["Caller Name"] || "Outgoing") + " Call";
+
+      setText("callerName", settings["Caller Name"] || "Caller");
+      setText("signalText", settings["Signal"] || "5G");
+
+      const outgoingStatus =
+        settings["Outgoing Status Text"] ||
+        settings["Incoming Status Text"] ||
+        "Calling";
+
+      setText("outgoingStatusText", outgoingStatus);
+
+      const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
+      setText("batteryPercent", battery + "%");
+      document.getElementById("batteryFill").style.width = battery + "%";
+
+      const signalBars = clamp(parseInt(settings["Signal Bars"] || "4", 10), 1, 4);
+      document.getElementById("signalBars").className = "signal-bars bars-" + signalBars;
+
+      setCssVar("--header-colour", settings["Header Colour"]);
+      setCssVar("--middle-colour", settings["Middle Colour"]);
+      setCssVar("--footer-colour", settings["Footer Colour"]);
+      setCssVar("--text-colour", settings["Text Colour"]);
+      setCssVar("--muted-text-colour", settings["Muted Text Colour"]);
+      setCssVar("--avatar-colour", settings["Avatar Colour"]);
+      setCssVar("--hangup-colour", settings["Hangup Colour"]);
+
+      if (settings["Wallpaper Image URL"]) {
+        setCssVar("--wallpaper", `url("${settings["Wallpaper Image URL"]}")`);
+      } else {
+        setCssVar("--wallpaper", "none");
+      }
+
+      applyAvatar(settings);
+      initialiseDisplayTimeIfNeeded(settings);
+      initialiseTimerIfNeeded(settings);
+
+      document.getElementById("outgoingStatus").classList.remove("hidden");
+      document.getElementById("callTimer").classList.remove("hidden");
+      document.getElementById("endedText").classList.add("hidden");
+      document.getElementById("outgoingControls").classList.remove("hidden");
+
+      callScreen.classList.add("ready");
+    }
+
+    function applyAvatar(settings) {
+      const avatar = document.getElementById("avatar");
+
+      if (settings["Caller Image URL"]) {
+        avatar.textContent = "";
+        avatar.style.backgroundImage = `url("${settings["Caller Image URL"]}")`;
+      } else {
+        avatar.style.backgroundImage = "";
+        avatar.textContent = settings["Avatar Initials"] || initials(settings["Caller Name"]);
+      }
+    }
+
+    function endCall() {
+      document.getElementById("outgoingStatus").classList.add("hidden");
+      document.getElementById("callTimer").classList.add("hidden");
+      document.getElementById("outgoingControls").classList.add("hidden");
+      document.getElementById("endedText").classList.remove("hidden");
+
+      const timeoutSeconds = parseFloat(latestSettings["Decline Timeout Seconds"] || "3");
+      const safeTimeout = isNaN(timeoutSeconds) ? 3 : Math.max(0, timeoutSeconds);
+
+      setTimeout(() => {
+        lockedBlackAfterEnd = true;
+        document.getElementById("callScreen").classList.remove("ready");
+        document.getElementById("inactiveScreen").classList.add("visible");
+      }, safeTimeout * 1000);
+    }
+
+    function initialiseTimerIfNeeded(settings) {
+      if (timerInitialised) return;
+
+      timerBaseSeconds = parseTimerToSeconds(settings["Call Timer"] || "00:00");
+      timerStartedAt = Date.now();
+      timerInitialised = true;
+
+      updateLiveClocks();
+    }
+
+    function initialiseDisplayTimeIfNeeded(settings) {
+      if (displayTimeStartedAt) return;
+
+      displayTimeBaseMinutes = parseClockToMinutes(settings["Display Time"] || "10:47");
+      displayTimeStartedAt = Date.now();
+    }
+
+    function updateLiveClocks() {
+      if (timerInitialised) {
+        const elapsedSeconds = Math.floor((Date.now() - timerStartedAt) / 1000);
+        setText("callTimer", formatTimer(timerBaseSeconds + elapsedSeconds));
+      }
+
+      if (displayTimeStartedAt) {
+        const elapsedMinutes = Math.floor((Date.now() - displayTimeStartedAt) / 60000);
+        setText("displayTime", formatClockMinutes(displayTimeBaseMinutes + elapsedMinutes));
+      }
+    }
+
+    function parseTimerToSeconds(text) {
+      const parts = String(text || "0")
+        .split(":")
+        .map(Number)
+        .filter(number => !isNaN(number));
+
+      if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (parts.length === 2) return parts[0] * 60 + parts[1];
+      if (parts.length === 1) return parts[0];
+
+      return 0;
+    }
+
+    function formatTimer(totalSeconds) {
+      totalSeconds = Math.max(0, totalSeconds);
+
+      const hours = Math.floor(totalSeconds / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+
+      if (hours > 0) {
+        return (
+          String(hours).padStart(2, "0") + ":" +
+          String(minutes).padStart(2, "0") + ":" +
+          String(seconds).padStart(2, "0")
+        );
+      }
+
+      return (
+        String(minutes).padStart(2, "0") + ":" +
+        String(seconds).padStart(2, "0")
+      );
+    }
+
+    function parseClockToMinutes(text) {
+      const match = String(text || "").match(/^(\d{1,2}):(\d{2})$/);
+      if (!match) return 0;
+      return parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+    }
+
+    function formatClockMinutes(totalMinutes) {
+      const minutesInDay = 24 * 60;
+      const wrapped = ((totalMinutes % minutesInDay) + minutesInDay) % minutesInDay;
+      const hours = Math.floor(wrapped / 60);
+      const minutes = wrapped % 60;
+      return String(hours).padStart(2, "0") + ":" + String(minutes).padStart(2, "0");
+    }
+
+    function setText(id, text) {
+      document.getElementById(id).textContent = text;
+    }
+
+    function setCssVar(name, value) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+
+    function clamp(value, min, max) {
+      if (isNaN(value)) return min;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function initials(name) {
+      if (!name) return "?";
+
+      return String(name)
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map(part => part[0].toUpperCase())
+        .join("");
+    }
+
+    loadSettings();
+    setInterval(loadSettings, 1000);
+    setInterval(updateLiveClocks, 250);
+  </script>
+</body>
+</html>
