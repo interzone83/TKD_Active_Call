@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html - Integrated Generic Call Screen v5.3
+    activecall.html - Integrated Generic Call Screen v5.2
     ---------------------------------------------------
     Single HTML file for all call states:
       - incoming
@@ -518,7 +518,6 @@
     let latestSettings = {};
     let currentState = "incoming";
     let previousSheetState = "";
-    let previousSheetActive = null;
     let locallyOverriddenState = false;
 
     let lockedBlackAfterEnd = false;
@@ -535,9 +534,6 @@
     let displayTimeBaseMinutes = 0;
     let displayTimeStartedAt = 0;
     let lastSheetDisplayTime = "";
-
-    let currentRingtoneUrl = "";
-    let ringtonePlaying = false;
 
     /* ============================================================
        2. API
@@ -577,26 +573,6 @@
       const sheetState = normaliseState(settings["Call State"] || "incoming");
 
       /*
-        ACTIVE TOGGLE REFRESH
-        ------------------------------------------------------------
-        Treat Active FALSE -> TRUE like a clean refresh of the call page.
-
-        This helps audio/ringtone behave properly instead of resuming
-        halfway through a previous sound.
-      */
-      const activeJustTurnedOn = previousSheetActive === false && sheetActive === true;
-
-      if (activeJustTurnedOn) {
-        localEndedHold = false;
-        lockedBlackAfterEnd = false;
-        sawInactiveAfterBlack = false;
-        locallyOverriddenState = false;
-        currentState = sheetState;
-        resetCallTimer();
-        resetRingtoneToStart();
-      }
-
-      /*
         BLACK SCREEN RESET
         ------------------------------------------------------------
         After decline/end, the screen stays black.
@@ -612,7 +588,6 @@
       if (lockedBlackAfterEnd) {
         if (!sheetActive) {
           sawInactiveAfterBlack = true;
-          previousSheetActive = false;
           return;
         }
 
@@ -648,12 +623,11 @@
       if (!sheetActive) {
         callScreen.classList.remove("ready");
         inactiveScreen.classList.add("visible");
-        resetRingtoneToStart();
+        stopRingtone();
         locallyOverriddenState = false;
         localEndedHold = false;
         resetCallTimer();
         previousSheetState = "";
-        previousSheetActive = false;
         return;
       }
 
@@ -671,7 +645,6 @@
       applyState(currentState, settings);
 
       previousSheetState = sheetState;
-      previousSheetActive = sheetActive;
       callScreen.classList.add("ready");
     }
 
@@ -836,15 +809,7 @@
     function updateCallTimerFromSheet(settings) {
       const sheetTimer = String(settings["Call Timer"] || "00:00").trim();
 
-      /*
-        CALL TIMER FIX
-        ------------------------------------------------------------
-        Reset only when entering active or when the sheet Call Timer
-        value changes. Do not reset on every poll.
-      */
-      const justEnteredActive = previousSheetState !== "active" && currentState === "active";
-
-      if (!callTimerInitialised || sheetTimer !== lastSheetCallTimer || justEnteredActive) {
+      if (!callTimerInitialised || sheetTimer !== lastSheetCallTimer || previousSheetState !== "active") {
         callTimerBaseSeconds = parseTimerToSeconds(sheetTimer);
         callTimerStartedAt = Date.now();
         callTimerInitialised = true;
@@ -896,20 +861,11 @@
 
       if (!url) return;
 
-      if (currentRingtoneUrl !== url) {
-        currentRingtoneUrl = url;
+      if (audio.src !== url) {
         audio.src = url;
-        audio.currentTime = 0;
-        ringtonePlaying = false;
       }
 
-      if (ringtonePlaying) return;
-
-      audio.currentTime = 0;
-      ringtonePlaying = true;
-
       audio.play().catch(error => {
-        ringtonePlaying = false;
         console.log("Ringtone play blocked or failed:", error);
       });
     }
@@ -918,20 +874,6 @@
       const audio = document.getElementById("ringtoneAudio");
       audio.pause();
       audio.currentTime = 0;
-      ringtonePlaying = false;
-    }
-
-    function resetRingtoneToStart() {
-      const audio = document.getElementById("ringtoneAudio");
-      audio.pause();
-      audio.currentTime = 0;
-      ringtonePlaying = false;
-
-      try {
-        audio.load();
-      } catch (error) {
-        console.log("Audio reload skipped:", error);
-      }
     }
 
     /* ============================================================
