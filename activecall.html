@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
 
   <!--
-    activecall.html - Integrated Generic Call Screen v5.3
+    activecall.html - Integrated Generic Call Screen v5.4
     ---------------------------------------------------
     Single HTML file for all call states:
       - incoming
@@ -837,14 +837,19 @@
       const sheetTimer = String(settings["Call Timer"] || "00:00").trim();
 
       /*
-        CALL TIMER FIX
+        CALL TIMER FIX v5.4
         ------------------------------------------------------------
-        Reset only when entering active or when the sheet Call Timer
-        value changes. Do not reset on every poll.
-      */
-      const justEnteredActive = previousSheetState !== "active" && currentState === "active";
+        The timer must not reset on every sheet poll.
 
-      if (!callTimerInitialised || sheetTimer !== lastSheetCallTimer || justEnteredActive) {
+        It now resets only when:
+          - the active timer has not started yet
+          - the sheet Call Timer value actually changes
+
+        This works whether active state came from:
+          - pressing Accept locally
+          - changing Call State = active in the sheet
+      */
+      if (!callTimerInitialised || sheetTimer !== lastSheetCallTimer) {
         callTimerBaseSeconds = parseTimerToSeconds(sheetTimer);
         callTimerStartedAt = Date.now();
         callTimerInitialised = true;
