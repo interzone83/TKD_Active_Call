@@ -392,6 +392,106 @@
     .inactive.visible {
       display: block;
     }
+    
+    
+    .status-bar {
+  padding: calc(7px + env(safe-area-inset-top)) 20px 5px !important;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  color: rgba(244, 247, 251, 0.9) !important;
+  line-height: 1 !important;
+  min-height: 18px !important;
+}
+
+#displayTime {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+
+.status-right {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+}
+
+#signalText,
+#batteryPercent {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: -0.01em !important;
+  line-height: 1 !important;
+}
+
+.signal-bars {
+  display: flex !important;
+  align-items: end !important;
+  gap: 1.5px !important;
+  height: 10px !important;
+  margin-right: 1px !important;
+}
+
+.signal-bars span {
+  width: 2px !important;
+  background: currentColor !important;
+  border-radius: 1px !important;
+  opacity: 0.28;
+}
+
+.signal-bars span:nth-child(1) { height: 3px !important; }
+.signal-bars span:nth-child(2) { height: 5px !important; }
+.signal-bars span:nth-child(3) { height: 7px !important; }
+.signal-bars span:nth-child(4) { height: 10px !important; }
+
+.signal-bars.bars-1 span:nth-child(-n+1),
+.signal-bars.bars-2 span:nth-child(-n+2),
+.signal-bars.bars-3 span:nth-child(-n+3),
+.signal-bars.bars-4 span:nth-child(-n+4) {
+  opacity: 1 !important;
+}
+
+/* Vertical Samsung-style battery icon */
+.battery {
+  width: 8px !important;
+  height: 14px !important;
+  border: 1.2px solid currentColor !important;
+  border-radius: 2px !important;
+  position: relative !important;
+  overflow: hidden !important;
+  margin-left: 1px !important;
+  opacity: 0.9 !important;
+  display: flex !important;
+  align-items: flex-end !important;
+}
+
+.battery::after {
+  content: "" !important;
+  position: absolute !important;
+  left: 2px !important;
+  right: 2px !important;
+  top: -3px !important;
+  width: auto !important;
+  height: 2px !important;
+  background: currentColor !important;
+  border-radius: 1px 1px 0 0 !important;
+}
+
+.battery-fill {
+  position: absolute !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: var(--battery-fill-height, 43%) !important;
+  background: currentColor !important;
+  border-radius: 0 0 1px 1px !important;
+}
   </style>
 </head>
 
@@ -682,6 +782,8 @@
       const battery = clamp(parseInt(settings["Battery %"] || "43", 10), 0, 100);
       setText("batteryPercent", battery + "%");
       document.getElementById("batteryFill").style.width = battery + "%";
+      document.getElementById("batteryFill").style.height = battery + "%";
+      document.getElementById("batteryFill").style.setProperty("--battery-fill-height", battery + "%");
 
       const signalBars = clamp(parseInt(settings["Signal Bars"] || "4", 10), 1, 4);
       document.getElementById("signalBars").className = "signal-bars bars-" + signalBars;
